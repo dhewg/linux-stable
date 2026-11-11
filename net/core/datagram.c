@@ -327,13 +327,31 @@ int skb_copy_datagram_iovec(const struct sk_buff *skb, int offset,
 	trace_skb_copy_datagram_iovec(skb, len);
 
 	/* Copy header. */
-	if (copy > 0) {
+	if (copy > 0) 
+	{
 		if (copy > len)
+		{
 			copy = len;
-		if (memcpy_toiovec(to, skb->data + offset, copy))
+		}
+
+		/* 
+		 * TR143 delivery a null pointer in user mode space. In this particular way 
+		 * to avoid Memory copy from user space to kernel space, and To increase the speed.
+		 * so we need to handle the null buff pointer here 
+		 * 
+		 */
+		if (
+#ifdef CONFIG_TP_IMAGE
+			to->iov_base != NULL &&
+#endif /* CONFIG_TP_IMAGE */
+			memcpy_toiovec(to, skb->data + offset, copy))
+		{
 			goto fault;
+		}
 		if ((len -= copy) == 0)
+		{
 			return 0;
+		}
 		offset += copy;
 	}
 
@@ -351,15 +369,31 @@ int skb_copy_datagram_iovec(const struct sk_buff *skb, int offset,
 			struct page *page = skb_frag_page(frag);
 
 			if (copy > len)
+			{
 				copy = len;
-			vaddr = kmap(page);
-			err = memcpy_toiovec(to, vaddr + frag->page_offset +
-					     offset - start, copy);
-			kunmap(page);
+			}
+#ifdef CONFIG_TP_IMAGE	
+			if (to->iov_base != NULL)
+			{
+#endif /* CONFIG_TP_IMAGE */
+				vaddr = kmap(page);
+				err = memcpy_toiovec(to, vaddr + frag->page_offset + offset - start, copy);
+				kunmap(page);
+#ifdef CONFIG_TP_IMAGE				
+			}
+			else
+			{
+				err = 0;
+			}
+#endif /* CONFIG_TP_IMAGE */
 			if (err)
+			{
 				goto fault;
+			}
 			if (!(len -= copy))
+			{
 				return 0;
+			}
 			offset += copy;
 		}
 		start = end;
@@ -371,21 +405,33 @@ int skb_copy_datagram_iovec(const struct sk_buff *skb, int offset,
 		WARN_ON(start > offset + len);
 
 		end = start + frag_iter->len;
-		if ((copy = end - offset) > 0) {
+		if ((copy = end - offset) > 0)
+		{
 			if (copy > len)
+			{
 				copy = len;
-			if (skb_copy_datagram_iovec(frag_iter,
-						    offset - start,
-						    to, copy))
+			}
+			if (
+#ifdef CONFIG_TP_IMAGE
+				to->iov_base != NULL && 
+#endif /* CONFIG_TP_IMAGE */				
+				skb_copy_datagram_iovec(frag_iter, offset - start, to, copy))
+			{
 				goto fault;
+			}
 			if ((len -= copy) == 0)
+			{
+
 				return 0;
+			}
 			offset += copy;
 		}
 		start = end;
 	}
 	if (!len)
+	{
 		return 0;
+	}
 
 fault:
 	return -EFAULT;

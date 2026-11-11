@@ -135,6 +135,7 @@
 #include <linux/filter.h>
 
 #include <trace/events/sock.h>
+#include "ecnt_net_core.h"
 
 #ifdef CONFIG_INET
 #include <net/tcp.h>
@@ -978,8 +979,10 @@ set_rcvbuf:
 
 	default:
 		ret = -ENOPROTOOPT;
+		ecnt_sock_setsockopt_inline_hook(sk, optname, val, valbool, &ret);
 		break;
 	}
+
 	release_sock(sk);
 	return ret;
 }
@@ -2328,6 +2331,8 @@ void sock_init_data(struct socket *sock, struct sock *sk)
 
 	sk->sk_max_pacing_rate = ~0U;
 	sk->sk_pacing_rate = ~0U;
+	ecnt_sock_init_data_inline_hook(sock, sk);
+
 	/*
 	 * Before updating sk_refcnt, we must commit prior changes to memory
 	 * (Documentation/RCU/rculist_nulls.txt for details)

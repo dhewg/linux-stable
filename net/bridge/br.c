@@ -215,6 +215,13 @@ static void __exit br_deinit(void)
 	br_fdb_fini();
 }
 
+/*add by liaoyilu 2020-11-30, for hyfi-bridge*/
+#ifdef CONFIG_HYFI_BRIDGE 
+/* Hook for bridge event notifications */
+br_notify_hook_t __rcu *br_notify_hook __read_mostly;
+EXPORT_SYMBOL_GPL(br_notify_hook);
+#endif /*CONFIG_HYFI_BRIDGE*/
+
 module_init(br_init)
 module_exit(br_deinit)
 MODULE_LICENSE("GPL");

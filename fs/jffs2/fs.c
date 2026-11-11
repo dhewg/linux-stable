@@ -755,12 +755,12 @@ void jffs2_flash_cleanup(struct jffs2_sb_info *c) {
 	}
 
 	/* and Intel "Sibley" flash */
-	if (jffs2_nor_wbuf_flash(c)) {
+	else if (jffs2_nor_wbuf_flash(c)) {
 		jffs2_nor_wbuf_flash_cleanup(c);
 	}
 
 	/* and an UBI volume */
-	if (jffs2_ubivol(c)) {
+	else if (jffs2_ubivol(c)) {
 		jffs2_ubivol_cleanup(c);
 	}
 }

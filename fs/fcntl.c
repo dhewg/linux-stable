@@ -375,6 +375,7 @@ out1:
 out:
 	return err;
 }
+EXPORT_SYMBOL(sys_fcntl);/*export for MTK RTP support*/
 
 #if BITS_PER_LONG == 32
 SYSCALL_DEFINE3(fcntl64, unsigned int, fd, unsigned int, cmd,

@@ -282,6 +282,9 @@ struct in6_flowlabel_req {
 #define IPV6_TRANSPARENT        75
 #define IPV6_UNICAST_IF         76
 
+#define	IPV6_SKB_MARK 			77
+#define	IPV6_SKB_VLAN_ID		78
+
 /*
  * Multicast Routing:
  * see include/uapi/linux/mroute6.h.

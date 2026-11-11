@@ -1,0 +1,22 @@
+menu "TP-LINK Configure"
+config TP_EASYMESH
+	bool "Support TP-LINK Easymesh"
+	default n
+config HYFI_BRIDGE
+	bool "Linux Bridge Hyfi-bridge Support"
+	default n
+
+config QOE
+	bool "Support TPUC Wi-Fi QoE related info"
+	default n
+
+config TP_IPV6_PASSTHROUGH
+	bool "Support IPV6 L2 Passthrough"
+	default n
+
+config TP_DISABLE_UART
+	bool "disable UART"
+	default n
+	
+
+endmenu

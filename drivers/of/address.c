@@ -959,7 +959,7 @@ int of_dma_get_range(struct device_node *np, u64 *dma_addr, u64 *paddr, u64 *siz
 			break;
 	}
 
-	if (!ranges) {
+	if (!ranges || !node) {
 		pr_debug("%s: no dma-ranges found for node(%s)\n",
 			 __func__, np->full_name);
 		ret = -ENODEV;

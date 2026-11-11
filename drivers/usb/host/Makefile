@@ -24,11 +24,16 @@ ifneq ($(CONFIG_USB_XHCI_RCAR), )
 	xhci-plat-hcd-y		+= xhci-rcar.o
 endif
 
+ifdef CONFIG_USB_EN7512_XHCI_HCD
+xhci-hcd-y += mtk-phy.o xhci-mtk-scheduler.o xhci-mtk-power.o xhci-mtk.o mtk-phy-ahb.o
+endif
 obj-$(CONFIG_USB_WHCI_HCD)	+= whci/
 
 obj-$(CONFIG_PCI)		+= pci-quirks.o
 
+ifndef CONFIG_USB_EN7512_XHCI_HCD
 obj-$(CONFIG_USB_XHCI_PCI)	+= xhci-pci.o
+endif
 obj-$(CONFIG_USB_XHCI_PLATFORM) += xhci-plat-hcd.o
 
 obj-$(CONFIG_USB_EHCI_HCD)	+= ehci-hcd.o
@@ -79,3 +84,6 @@ obj-$(CONFIG_USB_HCD_SSB)	+= ssb-hcd.o
 obj-$(CONFIG_USB_FUSBH200_HCD)	+= fusbh200-hcd.o
 obj-$(CONFIG_USB_FOTG210_HCD)	+= fotg210-hcd.o
 obj-$(CONFIG_USB_MAX3421_HCD)	+= max3421-hcd.o
+ifndef CONFIG_USB_EN7512_XHCI_HCD
+obj-$(CONFIG_MIPS_RT63365)	+= ehci_ohci.o
+endif

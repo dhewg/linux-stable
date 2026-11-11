@@ -107,6 +107,8 @@
 #include <linux/atalk.h>
 #include <net/busy_poll.h>
 #include <linux/errqueue.h>
+#include <linux/ecnt_skbuff.h>
+#include "ecnt_net.h"
 
 #ifdef CONFIG_NET_RX_BUSY_POLL
 unsigned int sysctl_net_busy_read __read_mostly;
@@ -392,7 +394,7 @@ struct file *sock_alloc_file(struct socket *sock, int flags, const char *dname)
 }
 EXPORT_SYMBOL(sock_alloc_file);
 
-static int sock_map_fd(struct socket *sock, int flags)
+int sock_map_fd(struct socket *sock, int flags)
 {
 	struct file *newfile;
 	int fd = get_unused_fd_flags(flags);
@@ -408,6 +410,7 @@ static int sock_map_fd(struct socket *sock, int flags)
 	put_unused_fd(fd);
 	return PTR_ERR(newfile);
 }
+EXPORT_SYMBOL(sock_map_fd);
 
 struct socket *sock_from_file(struct file *file, int *err)
 {
@@ -1036,7 +1039,19 @@ static long sock_do_ioctl(struct net *net, struct socket *sock,
  *	With an ioctl, arg may well be a user mode pointer, but we don't know
  *	what to do with it - that's up to the protocol still.
  */
+//#ifdef CONFIG_SMUX
+	static DEFINE_MUTEX(smux_ioctl_mutex);
+	static int (*smux_ioctl_hook) (void __user *arg);
 
+	void smux_ioctl_set(int (*hook) (void __user *))
+	{
+		mutex_lock(&smux_ioctl_mutex);
+		smux_ioctl_hook = hook;
+		mutex_unlock(&smux_ioctl_mutex);
+	}
+	
+	EXPORT_SYMBOL(smux_ioctl_set);
+//#endif /* CONFIG_SMUX */
 static long sock_ioctl(struct file *file, unsigned cmd, unsigned long arg)
 {
 	struct socket *sock;
@@ -1105,6 +1120,18 @@ static long sock_ioctl(struct file *file, unsigned cmd, unsigned long arg)
 				err = dlci_ioctl_hook(cmd, argp);
 			mutex_unlock(&dlci_ioctl_mutex);
 			break;
+		
+//#ifdef CONFIG_SMUX
+		case SIOCSIFSMUX:
+			err = -ENOPKG;
+			if(!smux_ioctl_hook)
+				request_module("smux");
+			mutex_lock(&smux_ioctl_mutex);
+			if(smux_ioctl_hook)
+				err = smux_ioctl_hook(argp);
+			mutex_unlock(&smux_ioctl_mutex);
+			break;
+//#endif /* CONFIG_SMUX */
 		default:
 			err = sock_do_ioctl(net, sock, cmd, arg);
 			break;
@@ -1340,6 +1367,8 @@ int __sock_create(struct net *net, int family, int type, int protocol,
 	err = security_socket_post_create(sock, family, type, protocol, kern);
 	if (err)
 		goto out_sock_release;
+
+	ecnt_sock_create_inline_hook(sock);
 	*res = sock;
 
 	return 0;
@@ -2690,6 +2719,8 @@ static int __init sock_init(void)
 
 	ptp_classifier_init();
 
+	ecnt_net_filter_hook_init();
+	
 out:
 	return err;
 

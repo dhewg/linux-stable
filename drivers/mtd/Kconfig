@@ -325,4 +325,7 @@ source "drivers/mtd/spi-nor/Kconfig"
 
 source "drivers/mtd/ubi/Kconfig"
 
+source "drivers/mtd/econet/Kconfig"
+
+source "drivers/mtd/mtk/Kconfig"
 endif # MTD

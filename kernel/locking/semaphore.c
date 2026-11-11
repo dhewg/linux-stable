@@ -188,6 +188,184 @@ void up(struct semaphore *sem)
 }
 EXPORT_SYMBOL(up);
 
+#if defined(TCSUPPORT_NEW_SPIFLASH)
+#define SF_MUX_LOCK_MAX		(10)
+
+int down_Manual_interruptible(struct semaphore *sem)
+{
+	unsigned long flags = 0;
+	int result = 0;
+
+	//while(1) {
+		spin_lock_irqsave(&sem->lock, flags);
+		if (likely(sem->count == 0)) {
+			sem->count += (2 * SF_MUX_LOCK_MAX);
+		//	printk("down_Manual_0:sem->count is %d\n", sem->count);
+		}
+		else{
+		//	printk("down_Manual_1:sem->count is %d\n", sem->count);
+			result = __down_interruptible(sem);
+			if(result == 0)
+				sem->count += (2 * SF_MUX_LOCK_MAX);
+		//	printk("down_Manual_2:sem->count is %d, result is %d\n", sem->count, result);
+		}
+		spin_unlock_irqrestore(&sem->lock, flags);
+	//}
+
+	return result;
+}
+EXPORT_SYMBOL(down_Manual_interruptible);
+
+int down_Auto_interruptible(struct semaphore *sem)
+{
+	unsigned long flags = 0;
+	int result = 0;
+
+	//while(1) {
+		spin_lock_irqsave(&sem->lock, flags);
+		if (likely(sem->count < (2 * SF_MUX_LOCK_MAX))) {
+			sem->count += 1;
+			//printk("down_Auto_0:sem->count is %d\n", sem->count);
+		}
+		else{
+			//printk("down_Auto_1:sem->count is %d\n", sem->count);
+			result = __down_interruptible(sem);
+			if(result == 0)
+				sem->count += 1;	
+			//printk("down_Auto_2:sem->count is %d, result is %d\n", sem->count, result);
+		}
+		spin_unlock_irqrestore(&sem->lock, flags);
+	//}
+
+	return result;
+}
+EXPORT_SYMBOL(down_Auto_interruptible);
+
+int down_Unzip_interruptible(struct semaphore *sem)
+{
+	unsigned long flags = 0;
+	int result = 0;
+
+	//while(1) {
+		spin_lock_irqsave(&sem->lock, flags);
+		if (likely(sem->count <= SF_MUX_LOCK_MAX)) {
+			sem->count += SF_MUX_LOCK_MAX;
+			//printk("down_Unzip_0:sem->count is %d\n", sem->count);
+		}
+		else{
+			//printk("down_Unzip_1:sem->count is %d\n", sem->count);
+			result = __down_interruptible(sem);
+			if(result == 0)
+				sem->count += (SF_MUX_LOCK_MAX);	
+			//printk("down_Unzip_2:sem->count is %d, result is %d\n", sem->count, result);
+		}
+		spin_unlock_irqrestore(&sem->lock, flags);
+	//}
+
+	return result;
+}
+EXPORT_SYMBOL(down_Unzip_interruptible);
+
+void up_Manual(struct semaphore *sem)
+{
+	unsigned long flags = 0;
+
+	spin_lock_irqsave(&sem->lock, flags);
+#if 0
+	if (likely(list_empty(&sem->wait_list)))
+		sem->count -= (2 * SF_MUX_LOCK_MAX);
+	else
+		__up(sem);
+#endif
+	sem->count -= (2 * SF_MUX_LOCK_MAX);
+	if (!(list_empty(&sem->wait_list)))
+		__up(sem);
+//	printk("up_Manual:sem->count is %d\n", sem->count);
+	spin_unlock_irqrestore(&sem->lock, flags);
+}
+EXPORT_SYMBOL(up_Manual);
+
+void up_Auto(struct semaphore *sem)
+{
+	unsigned long flags = 0;
+
+	spin_lock_irqsave(&sem->lock, flags);
+#if 0
+	if (likely(list_empty(&sem->wait_list)))
+		sem->count -= 1;
+	else
+		__up(sem);
+#endif
+	sem->count -= 1;
+	if (!(list_empty(&sem->wait_list)))
+		__up(sem);
+	//printk("up_Auto:sem->count is %d\n", sem->count);
+	spin_unlock_irqrestore(&sem->lock, flags);
+}
+EXPORT_SYMBOL(up_Auto);
+
+void up_Unzip(struct semaphore *sem)
+{
+	unsigned long flags = 0;
+
+	spin_lock_irqsave(&sem->lock, flags);
+#if 0
+	if (likely(list_empty(&sem->wait_list)))
+		sem->count -= SF_MUX_LOCK_MAX;
+	else
+		__up(sem);
+#endif
+	sem->count -= (SF_MUX_LOCK_MAX);
+	if (!(list_empty(&sem->wait_list)))
+		__up(sem);
+	//printk("up_Unzip:sem->count is %d\n", sem->count);
+	spin_unlock_irqrestore(&sem->lock, flags);
+}
+EXPORT_SYMBOL(up_Unzip);
+
+int down_Normal_interruptible(struct semaphore *sem)
+{
+#if 0
+	unsigned long flags = 0;
+	spin_lock_irqsave(&sem->lock, flags);
+	return 0;
+//#else
+
+	unsigned long flags;
+	int result = 0;
+
+	spin_lock_irqsave(&sem->lock, flags);
+	if (likely(sem->count > 0))
+		sem->count--;
+	else
+		result = __down_interruptible(sem);
+	spin_unlock_irqrestore(&sem->lock, flags);
+
+
+	return result;
+#endif
+	return 0;
+}
+EXPORT_SYMBOL(down_Normal_interruptible);
+
+void up_Normal(struct semaphore *sem)
+{
+#if 0
+	unsigned long flags = 0;
+	spin_unlock_irqrestore(&sem->lock, flags);
+//#else
+	unsigned long flags;
+
+	spin_lock_irqsave(&sem->lock, flags);
+	if (likely(list_empty(&sem->wait_list)))
+		sem->count++;
+	else
+		__up(sem);
+	spin_unlock_irqrestore(&sem->lock, flags);
+#endif
+}
+EXPORT_SYMBOL(up_Normal);
+#endif
 /* Functions for the contended case */
 
 struct semaphore_waiter {

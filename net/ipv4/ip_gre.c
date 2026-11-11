@@ -54,6 +54,8 @@
 #include <net/ip6_route.h>
 #endif
 
+#include <ecnt_hook/ecnt_hook_net.h>
+
 /*
    Problems & solutions
    --------------------
@@ -251,6 +253,15 @@ static netdev_tx_t ipgre_xmit(struct sk_buff *skb,
 {
 	struct ip_tunnel *tunnel = netdev_priv(dev);
 	const struct iphdr *tnl_params;
+	struct net_data_s net_data;
+	int ret;
+
+	net_data.pskb = &skb;
+	ret =  ECNT_GRE_GENERIC_HOOK(ECNT_NET_GRE_XMIT, &net_data);
+	if (ECNT_RETURN_DROP == ret)
+	{
+        goto free_skb;
+	}
 
 	if (dev->header_ops) {
 		/* Need space for new headers */
@@ -291,6 +302,15 @@ static netdev_tx_t gre_tap_xmit(struct sk_buff *skb,
 				struct net_device *dev)
 {
 	struct ip_tunnel *tunnel = netdev_priv(dev);
+	struct net_data_s net_data;
+	int ret;
+
+	net_data.pskb = &skb;
+	ret =  ECNT_GRE_GENERIC_HOOK(ECNT_NET_GRETAG_XMIT, &net_data);
+	if (ECNT_RETURN_DROP == ret)
+	{
+		goto free_skb;
+	}
 
 	skb = gre_handle_offloads(skb, !!(tunnel->parms.o_flags&TUNNEL_CSUM));
 	if (IS_ERR(skb))
@@ -700,7 +720,7 @@ static int ipgre_newlink(struct net *src_net, struct net_device *dev,
 {
 	struct ip_tunnel_parm p;
 	struct ip_tunnel_encap ipencap;
-
+	struct net_data_s net_data;
 	if (ipgre_netlink_encap_parms(data, &ipencap)) {
 		struct ip_tunnel *t = netdev_priv(dev);
 		int err = ip_tunnel_encap_setup(t, &ipencap);
@@ -710,6 +730,9 @@ static int ipgre_newlink(struct net *src_net, struct net_device *dev,
 	}
 
 	ipgre_netlink_parms(data, tb, &p);
+	net_data.device = dev;
+    net_data.remote_addr = p.iph.daddr;
+	ECNT_GRE_GENERIC_HOOK(ECNT_NET_GRE_NEWLINK, &net_data);
 	return ip_tunnel_newlink(dev, tb, &p);
 }
 
@@ -718,6 +741,7 @@ static int ipgre_changelink(struct net_device *dev, struct nlattr *tb[],
 {
 	struct ip_tunnel_parm p;
 	struct ip_tunnel_encap ipencap;
+	struct net_data_s net_data;
 
 	if (ipgre_netlink_encap_parms(data, &ipencap)) {
 		struct ip_tunnel *t = netdev_priv(dev);
@@ -728,6 +752,9 @@ static int ipgre_changelink(struct net_device *dev, struct nlattr *tb[],
 	}
 
 	ipgre_netlink_parms(data, tb, &p);
+	net_data.device = dev;
+    net_data.remote_addr = p.iph.daddr;
+	ECNT_GRE_GENERIC_HOOK(ECNT_NET_GRE_CHANGELINK, &net_data);
 	return ip_tunnel_changelink(dev, tb, &p);
 }
 

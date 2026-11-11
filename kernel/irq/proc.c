@@ -103,13 +103,40 @@ static ssize_t write_irq_affinity(int type, struct file *file,
 	if (!alloc_cpumask_var(&new_value, GFP_KERNEL))
 		return -ENOMEM;
 
+#ifndef CONFIG_MIPS_MT_SMP
 	if (type)
 		err = cpumask_parselist_user(buffer, count, new_value);
 	else
 		err = cpumask_parse_user(buffer, count, new_value);
 	if (err)
 		goto free_cpumask;
+#else
+	if (type)
+		err = bitmap_parselist_user(buffer, count, cpumask_bits(new_value), 4);
+	else
+		err = bitmap_parse_user(buffer, count, cpumask_bits(new_value), 4);
+	if (err)
+		goto free_cpumask;
 
+#ifndef TCSUPPORT_MIPS_1004K /* for 34K CPU only */
+	printk("\r\n\r\n%s new_value origin value is %08x\r\n\r\n", __FUNCTION__, *new_value);
+
+	if(*(unsigned long *)new_value == 0x8)
+	{
+		*(unsigned long *)new_value = 0x2;
+	}
+	else if(*(unsigned long *)new_value == 0xf)
+	{
+		*(unsigned long *)new_value = 0x3;
+	}
+	else
+	{
+		*(unsigned long *)new_value = 0x1;
+	}
+	
+	printk("\r\n\r\n%s new_value changed value is %08x\r\n\r\n", __FUNCTION__, *new_value);
+#endif
+#endif
 	if (!is_affinity_mask_valid(new_value)) {
 		err = -EINVAL;
 		goto free_cpumask;
@@ -410,9 +437,6 @@ void init_irq_proc(void)
 	 * Create entries for all existing IRQs.
 	 */
 	for_each_irq_desc(irq, desc) {
-		if (!desc)
-			continue;
-
 		register_irq_proc(irq, desc);
 	}
 }

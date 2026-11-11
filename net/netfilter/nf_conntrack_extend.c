@@ -110,7 +110,11 @@ void *__nf_ct_ext_add_length(struct nf_conn *ct, enum nf_ct_ext_id id,
 					(void *)old + old->offset[i]);
 			rcu_read_unlock();
 		}
+#ifdef CONFIG_TP_IMAGE
+		kfree(old);
+#else
 		kfree_rcu(old, rcu);
+#endif
 		ct->ext = new;
 	}
 

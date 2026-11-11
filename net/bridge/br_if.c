@@ -26,6 +26,13 @@
 #include <linux/if_vlan.h>
 
 #include "br_private.h"
+#include "ecnt_br.h"
+/*add by liaoyilu 2020-11-30, for hyfi-bridge*/
+#ifdef CONFIG_HYFI_BRIDGE 
+/* Hook for external forwarding logic */
+br_port_dev_get_hook_t __rcu *br_port_dev_get_hook __read_mostly;
+EXPORT_SYMBOL_GPL(br_port_dev_get_hook);
+#endif /*CONFIG_HYFI_BRIDGE*/
 
 /*
  * Determine initial path cost based on speed.
@@ -274,6 +281,8 @@ void br_dev_delete(struct net_device *dev, struct list_head *head)
 	struct net_bridge *br = netdev_priv(dev);
 	struct net_bridge_port *p, *n;
 
+	ecnt_br_dev_delete_inline_hook(br);
+
 	list_for_each_entry_safe(p, n, &br->port_list, list) {
 		del_nbp(p);
 	}
@@ -344,6 +353,10 @@ int br_add_bridge(struct net *net, const char *name)
 	struct net_device *dev;
 	int res;
 
+	/* check if device has exist */
+	if(ECNT_CONTINUE != ecnt_br_add_bridge_1_inline_hook(name))
+		return -EEXIST;
+
 	dev = alloc_netdev(sizeof(struct net_bridge), name, NET_NAME_UNKNOWN,
 			   br_dev_setup);
 
@@ -355,7 +368,10 @@ int br_add_bridge(struct net *net, const char *name)
 
 	res = register_netdev(dev);
 	if (res)
+	{
+		ecnt_br_add_bridge_2_inline_hook(dev);
 		free_netdev(dev);
+	}
 	return res;
 }
 
@@ -424,6 +440,9 @@ netdev_features_t br_features_recompute(struct net_bridge *br,
 		features = netdev_increment_features(features,
 						     p->dev->features, mask);
 	}
+	
+	features |= NETIF_F_SG;
+	features |= NETIF_F_GSO;
 
 	return features;
 }
@@ -519,6 +538,11 @@ int br_add_if(struct net_bridge *br, struct net_device *dev)
 	dev_set_mtu(br->dev, br_min_mtu(br));
 
 	kobject_uevent(&p->kobj, KOBJ_ADD);
+/*add by liaoyilu 2020-11-30, for hyfi-bridge*/
+#ifdef CONFIG_HYFI_BRIDGE 
+	call_netdevice_notifiers(NETDEV_BR_JOIN, dev);
+#endif /*CONFIG_HYFI_BRIDGE*/
+
 
 	return 0;
 
@@ -549,6 +573,10 @@ int br_del_if(struct net_bridge *br, struct net_device *dev)
 	p = br_port_get_rtnl(dev);
 	if (!p || p->br != br)
 		return -EINVAL;
+/*add by liaoyilu 2020-11-30, for hyfi-bridge*/
+#ifdef CONFIG_HYFI_BRIDGE 
+	call_netdevice_notifiers(NETDEV_BR_LEAVE, dev);
+#endif /*CONFIG_HYFI_BRIDGE*/
 
 	/* Since more than one interface can be attached to a bridge,
 	 * there still maybe an alternate path for netconsole to use;
@@ -575,3 +603,65 @@ void br_port_flags_change(struct net_bridge_port *p, unsigned long mask)
 	if (mask & BR_AUTO_MASK)
 		nbp_update_port_count(br);
 }
+
+/*add by liaoyilu 2020-11-30, for hyfi-bridge*/
+#ifdef CONFIG_HYFI_BRIDGE 
+/* br_port_dev_get()
+ *      If a skb is provided, and the br_port_dev_get_hook_t hook exists,
+ *      use that to try and determine the egress port for that skb.
+ *      If not, or no egress port could be determined, use the given addr
+ *      to identify the port to which it is reachable,
+ *	returing a reference to the net device associated with that port.
+ *
+ * NOTE: Return NULL if given dev is not a bridge or the mac has no
+ * associated port.
+ */
+struct net_device *br_port_dev_get(struct net_device *dev, unsigned char *addr,
+				   struct sk_buff *skb,
+				   unsigned int cookie)
+{
+	struct net_bridge_fdb_entry *fdbe;
+	struct net_bridge *br;
+	struct net_device *netdev = NULL;
+
+	/* Is this a bridge? */
+	if (!(dev->priv_flags & IFF_EBRIDGE))
+		return NULL;
+
+	rcu_read_lock();
+
+	/* If the hook exists and the skb isn't NULL, try and get the port */
+	if (skb) {
+		br_port_dev_get_hook_t *port_dev_get_hook;
+
+		port_dev_get_hook = rcu_dereference(br_port_dev_get_hook);
+		if (port_dev_get_hook) {
+			struct net_bridge_port *pdst =
+				__br_get(port_dev_get_hook, NULL, dev, skb,
+					 addr, cookie);
+			if (pdst) {
+				dev_hold(pdst->dev);
+				netdev = pdst->dev;
+				goto out;
+			}
+		}
+	}
+
+	/* Either there is no hook, or can't
+	 * determine the port to use - fall back to using FDB
+	 */
+
+	br = netdev_priv(dev);
+
+	/* Lookup the fdb entry and get reference to the port dev */
+	fdbe = __br_fdb_get(br, addr, 0);
+	if (fdbe && fdbe->dst) {
+		netdev = fdbe->dst->dev; /* port device */
+		dev_hold(netdev);
+	}
+out:
+	rcu_read_unlock();
+	return netdev;
+}
+EXPORT_SYMBOL_GPL(br_port_dev_get);
+#endif /*CONFIG_HYFI_BRIDGE*/

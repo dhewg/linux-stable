@@ -124,6 +124,20 @@ ebt_dev_check(const char *entry, const struct net_device *device)
 
 #define FWINV2(bool, invflg) ((bool) ^ !!(e->invflags & invflg))
 /* process standard matches */
+#if !defined(TCSUPPORT_ORN_EBTABLES)
+inline __be16 vlan_proto(const struct sk_buff *skb)
+{
+	return vlan_eth_hdr(skb)->h_vlan_encapsulated_proto;
+}
+inline __be16 pppoe_proto(const struct sk_buff *skb)
+{
+	return *((__be16 *)(skb_mac_header(skb) + ETH_HLEN +
+			    sizeof(struct pppoe_hdr)));
+}
+#endif
+
+
+
 static inline int
 ebt_basic_match(const struct ebt_entry *e, const struct sk_buff *skb,
                 const struct net_device *in, const struct net_device *out)
@@ -132,6 +146,9 @@ ebt_basic_match(const struct ebt_entry *e, const struct sk_buff *skb,
 	const struct net_bridge_port *p;
 	__be16 ethproto;
 	int verdict, i;
+#if !defined(TCSUPPORT_ORN_EBTABLES)
+	int ipv4_packet = 0, ipv6_packet = 0;
+#endif
 
 	if (vlan_tx_tag_present(skb))
 		ethproto = htons(ETH_P_8021Q);
@@ -141,10 +158,32 @@ ebt_basic_match(const struct ebt_entry *e, const struct sk_buff *skb,
 	if (e->bitmask & EBT_802_3) {
 		if (FWINV2(ntohs(ethproto) >= ETH_P_802_3_MIN, EBT_IPROTO))
 			return 1;
+#if !defined(TCSUPPORT_ORN_EBTABLES)
+	} else if (!(e->bitmask & EBT_NOPROTO) &&
+	   FWINV2(e->ethproto != h->h_proto, EBT_IPROTO)){
+		if((skb->protocol == htons(ETH_P_IP))||
+		   ((skb->protocol == htons(ETH_P_8021Q))&&(vlan_proto(skb) == htons(ETH_P_IP)))||
+		   ((skb->protocol == htons(ETH_P_PPP_SES))&&(pppoe_proto(skb) == htons(0x0021))))  /*0x0021: refer to include/linux/ppp_defs.h #define PPP_IP*/
+			ipv4_packet = 1;  /*ipv4 packet*/
+		else
+			ipv4_packet = 0;
+
+		if((skb->protocol == htons(ETH_P_IPV6))||
+		   ((skb->protocol == htons(ETH_P_8021Q))&&(vlan_proto(skb) == htons(ETH_P_IPV6)))||
+		   ((skb->protocol == htons(ETH_P_PPP_SES))&&(pppoe_proto(skb) == htons(0x0021))))	/*0x0021: refer to include/linux/ppp_defs.h #define PPP_IP*/
+			ipv6_packet = 1;  /*ipv6 packet*/
+		else
+			ipv6_packet = 0;
+
+		if(!(((e->ethproto==htons(ETH_P_8021Q))&&(skb->mark & EBT_VLAN_MARK))||
+			 ((e->ethproto==htons(ETH_P_IP))&&(ipv4_packet)) || ((e->ethproto == htons(ETH_P_IPV6)) && (ipv6_packet))))
+			return 1;
+	}
+#else
 	} else if (!(e->bitmask & EBT_NOPROTO) &&
 	   FWINV2(e->ethproto != ethproto, EBT_IPROTO))
 		return 1;
-
+#endif
 	if (FWINV2(ebt_dev_check(e->in, in), EBT_IIN))
 		return 1;
 	if (FWINV2(ebt_dev_check(e->out, out), EBT_IOUT))
@@ -157,22 +196,60 @@ ebt_basic_match(const struct ebt_entry *e, const struct sk_buff *skb,
 	    FWINV2(ebt_dev_check(e->logical_out, p->br->dev), EBT_ILOGICALOUT))
 		return 1;
 
-	if (e->bitmask & EBT_SOURCEMAC) {
+#if defined(TCSUPPORT_PON_MAC_FILTER)
+	if (e->bitmask & EBT_SOURCEMACSTART) 
+	{
 		verdict = 0;
 		for (i = 0; i < 6; i++)
-			verdict |= (h->h_source[i] ^ e->sourcemac[i]) &
-			   e->sourcemsk[i];
-		if (FWINV2(verdict != 0, EBT_ISOURCE) )
+		{
+			if(h->h_source[i] < e->sourcemacstart[i] || h->h_source[i] > e->sourcemacend[i])
+			{
+				verdict = 1;
+				break;
+			}
+		}
+		if (FWINV2(verdict != 0, EBT_ISOURCESTART) )
 			return 1;
+	}else{
+#endif
+		if (e->bitmask & EBT_SOURCEMAC) {
+			verdict = 0;
+			for (i = 0; i < 6; i++)
+				verdict |= (h->h_source[i] ^ e->sourcemac[i]) &
+				   e->sourcemsk[i];
+			if (FWINV2(verdict != 0, EBT_ISOURCE) )
+				return 1;
+		}
+#if defined(TCSUPPORT_PON_MAC_FILTER)
 	}
-	if (e->bitmask & EBT_DESTMAC) {
+#endif			
+#if defined(TCSUPPORT_PON_MAC_FILTER)
+	if (e->bitmask & EBT_DESTMACSTART) 
+	{
 		verdict = 0;
 		for (i = 0; i < 6; i++)
-			verdict |= (h->h_dest[i] ^ e->destmac[i]) &
-			   e->destmsk[i];
-		if (FWINV2(verdict != 0, EBT_IDEST) )
+		{
+			if((h->h_dest[i] < e->destmacstart[i]) || (h->h_dest[i] > e->destmacend[i]))
+			{
+				verdict = 1;
+				break;
+			}
+		}
+		if (FWINV2(verdict != 0, EBT_IDESTSTART) )
 			return 1;
+	}else{
+#endif
+		if (e->bitmask & EBT_DESTMAC) {
+			verdict = 0;
+			for (i = 0; i < 6; i++)
+				verdict |= (h->h_dest[i] ^ e->destmac[i]) &
+				   e->destmsk[i];
+			if (FWINV2(verdict != 0, EBT_IDEST) )
+				return 1;
+		}
+#if defined(TCSUPPORT_PON_MAC_FILTER)
 	}
+#endif	
 	return 0;
 }
 
@@ -220,7 +297,9 @@ unsigned int ebt_do_table (unsigned int hook, struct sk_buff *skb,
 	base = private->entries;
 	i = 0;
 	while (i < nentries) {
+
 		if (ebt_basic_match(point, skb, in, out))
+
 			goto letscontinue;
 
 		if (EBT_MATCH_ITERATE(point, ebt_do_match, skb, &acpar) != 0)

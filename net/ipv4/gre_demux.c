@@ -30,6 +30,8 @@
 #include <net/route.h>
 #include <net/xfrm.h>
 
+#include <ecnt_hook/ecnt_hook_net.h>
+
 static const struct gre_protocol __rcu *gre_proto[GREPROTO_MAX] __read_mostly;
 static struct gre_cisco_protocol __rcu *gre_cisco_proto_list[GRE_IP_PROTO_MAX];
 
@@ -256,7 +258,15 @@ static int gre_rcv(struct sk_buff *skb)
 {
 	const struct gre_protocol *proto;
 	u8 ver;
-	int ret;
+    int ret;
+    struct net_data_s net_data;
+
+    net_data.pskb = &skb;
+    ret =  ECNT_GRE_GENERIC_HOOK(ECNT_NET_GRE_RECV, &net_data);
+    if (ECNT_RETURN_DROP == ret)
+    {
+    	goto drop;
+    }
 
 	if (!pskb_may_pull(skb, 12))
 		goto drop;

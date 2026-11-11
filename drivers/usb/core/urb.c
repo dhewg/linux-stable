@@ -7,6 +7,7 @@
 #include <linux/wait.h>
 #include <linux/usb/hcd.h>
 #include <linux/scatterlist.h>
+#include "ecnt_drivers_usb_core.h"
 
 #define to_urb(d) container_of(d, struct urb, kref)
 
@@ -538,6 +539,8 @@ int usb_submit_urb(struct urb *urb, gfp_t mem_flags)
 			urb->interval = min(max, 1 << ilog2(urb->interval));
 		}
 	}
+
+	ecnt_usb_submit_urb_inline_hook(dev);
 
 	return usb_hcd_submit_urb(urb, mem_flags);
 }

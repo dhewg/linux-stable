@@ -33,6 +33,23 @@
 #include	"xhci-ext-caps.h"
 #include "pci-quirks.h"
 
+#if defined (CONFIG_USB_EN7512_XHCI_HCD)
+#ifdef TCSUPPORT_MIPS_1004K
+#include <asm/tc3162/tc3162.h>
+#define XHC_IRQ	IRQ_RT3XXX_USB
+#else
+#define XHC_IRQ 18
+#endif
+#define XHC_IO_START 0x1FB90000
+#define XHC_IO_LENGTH 0x10000
+/* MTK scheduler bitmasks */
+#define BPKTS(p)	((p) & 0x3f)
+#define BCSCOUNT(p)	(((p) & 0x7) << 8)
+#define BBM(p)		((p) << 11)
+#define BOFFSET(p)	((p) & 0x3fff)
+#define BREPEAT(p)	(((p) & 0x7fff) << 16)
+#endif
+
 /* xHCI PCI Configuration Registers */
 #define XHCI_SBRN_OFFSET	(0x60)
 
@@ -1565,6 +1582,7 @@ struct xhci_hcd {
 /* For controllers with a broken beyond repair streams implementation */
 #define XHCI_BROKEN_STREAMS	(1 << 19)
 #define XHCI_PME_STUCK_QUIRK	(1 << 20)
+#define XHCI_MTK_HOST			(1 << 21)
 	unsigned int		num_active_eps;
 	unsigned int		limit_active_eps;
 	/* There are two roothubs to keep track of bus suspend info for */
@@ -1587,8 +1605,12 @@ struct xhci_hcd {
 	/* Compliance Mode Recovery Data */
 	struct timer_list	comp_mode_recovery_timer;
 	u32			port_status_u0;
+#ifdef CONFIG_USB_EN7512_XHCI_HCD
+#define COMP_MODE_RCVRY_MSECS 5000
+#else
 /* Compliance Mode Timer Triggered every 2 seconds */
 #define COMP_MODE_RCVRY_MSECS 2000
+#endif
 };
 
 /* convert between an HCD pointer and the corresponding EHCI_HCD */
@@ -1642,6 +1664,11 @@ static inline void xhci_write_64(struct xhci_hcd *xhci,
 static inline int xhci_link_trb_quirk(struct xhci_hcd *xhci)
 {
 	return xhci->quirks & XHCI_LINK_TRB_QUIRK;
+}
+
+static inline int xhci_mtk_host(struct xhci_hcd *xhci)
+{
+	return xhci->quirks & XHCI_MTK_HOST;
 }
 
 /* xHCI debugging */

@@ -22,6 +22,7 @@
 #define NETLINK_DNRTMSG		14	/* DECnet routing messages */
 #define NETLINK_KOBJECT_UEVENT	15	/* Kernel messages to userspace */
 #define NETLINK_GENERIC		16
+#define NETLINK_ECNT_EVENT	17
 /* leave room for NETLINK_DM (DM Events) */
 #define NETLINK_SCSITRANSPORT	18	/* SCSI Transports */
 #define NETLINK_ECRYPTFS	19
@@ -30,7 +31,25 @@
 
 #define NETLINK_INET_DIAG	NETLINK_SOCK_DIAG
 
-#define MAX_LINKS 32		
+#define MAX_LINKS 32	
+
+//#ifdef CONFIG_TP_IMAGE	
+/* increase from 32 to 33 for neighbor-discover */
+#define NETLINK_NEIGHBOR_DISCOVER 32
+#define NETLINK_NEIGHBOR_DISCOVER_EVENT 33
+// Porting hyfi-bridge
+#define NETLINK_QCA_HYFI         34
+#define NETLINK_QCA_HYFI_EVENT   35
+#define NETLINK_QCA_MC           36
+#define NETLINK_QCA_MC_EVENT     37
+
+/* increase from 34 to 37 for tp-hyfi-bridge */
+/* for wan block, wportal modules */
+#define NETLINK_WPORTAL  38  
+
+#undef MAX_LINKS
+#define MAX_LINKS 39
+//#endif /*CONFIG_TP_IMAGE*/
 
 struct sockaddr_nl {
 	__kernel_sa_family_t	nl_family;	/* AF_NETLINK	*/

@@ -192,6 +192,10 @@ void br_ifinfo_notify(int event, struct net_bridge_port *port)
 		kfree_skb(skb);
 		goto errout;
 	}
+/*add by liaoyilu 2020-11-30, for hyfi-bridge*/
+#ifdef CONFIG_HYFI_BRIDGE 
+	__br_notify(RTNLGRP_LINK, event, port);
+#endif /*CONFIG_HYFI_BRIDGE*/
 	rtnl_notify(skb, net, 0, RTNLGRP_LINK, NULL, GFP_ATOMIC);
 	return;
 errout:

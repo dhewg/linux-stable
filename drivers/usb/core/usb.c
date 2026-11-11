@@ -43,6 +43,7 @@
 #include <linux/dma-mapping.h>
 
 #include "usb.h"
+#include "ecnt_drivers_usb_core.h"
 
 
 const char *usbcore_name = "usbcore";
@@ -499,6 +500,7 @@ struct usb_device *usb_alloc_dev(struct usb_device *parent,
 		dev->authorized = usb_hcd->authorized_default;
 		dev->wusb = usb_bus_is_wusb(bus) ? 1 : 0;
 	}
+	ecnt_usb_alloc_dev_inline_hook(parent, dev, port1);
 	return dev;
 }
 EXPORT_SYMBOL_GPL(usb_alloc_dev);
@@ -1051,6 +1053,7 @@ static int __init usb_init(void)
 		pr_info("%s: USB support disabled\n", usbcore_name);
 		return 0;
 	}
+	ecnt_usb_phy_init();
 	usb_init_pool_max();
 
 	retval = usb_debugfs_init();

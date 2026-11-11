@@ -32,6 +32,9 @@ static int meminfo_proc_show(struct seq_file *m, void *v)
 	unsigned long pages[NR_LRU_LISTS];
 	struct zone *zone;
 	int lru;
+#ifdef CONFIG_TC3162_IMEM	
+	extern unsigned int imem_remains;
+#endif	
 
 /*
  * display in kilobytes.
@@ -138,6 +141,9 @@ static int meminfo_proc_show(struct seq_file *m, void *v)
 #ifdef CONFIG_TRANSPARENT_HUGEPAGE
 		"AnonHugePages:  %8lu kB\n"
 #endif
+#ifdef CONFIG_TC3162_IMEM		
+		"IMEM Remains: %8lu Bytes\n"
+#endif
 		,
 		K(i.totalram),
 		K(i.freeram),
@@ -192,6 +198,9 @@ static int meminfo_proc_show(struct seq_file *m, void *v)
 #ifdef CONFIG_TRANSPARENT_HUGEPAGE
 		,K(global_page_state(NR_ANON_TRANSPARENT_HUGEPAGES) *
 		   HPAGE_PMD_NR)
+#endif
+#ifdef CONFIG_TC3162_IMEM			
+		,imem_remains
 #endif
 		);
 

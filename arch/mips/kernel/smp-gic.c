@@ -20,6 +20,7 @@
 
 void gic_send_ipi_single(int cpu, unsigned int action)
 {
+#ifdef TCSUPPORT_MIPS_1004K
 	unsigned long flags;
 	unsigned int intr;
 	unsigned int core = cpu_data[cpu].core;
@@ -53,6 +54,7 @@ void gic_send_ipi_single(int cpu, unsigned int action)
 	}
 
 	local_irq_restore(flags);
+#endif
 }
 
 void gic_send_ipi_mask(const struct cpumask *mask, unsigned int action)

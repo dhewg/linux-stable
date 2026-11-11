@@ -57,7 +57,7 @@ static bool ip_exceeds_mtu(const struct sk_buff *skb, unsigned int mtu)
 }
 
 
-static int ip_forward_finish(struct sk_buff *skb)
+__IMEM static int ip_forward_finish(struct sk_buff *skb)
 {
 	struct ip_options *opt	= &(IPCB(skb)->opt);
 
@@ -70,7 +70,7 @@ static int ip_forward_finish(struct sk_buff *skb)
 	return dst_output(skb);
 }
 
-int ip_forward(struct sk_buff *skb)
+__IMEM int ip_forward(struct sk_buff *skb)
 {
 	u32 mtu;
 	struct iphdr *iph;	/* Our header */

@@ -44,9 +44,19 @@ static void cmp_init_secondary(void)
 	struct cpuinfo_mips *c __maybe_unused = &current_cpu_data;
 
 	/* Assume GIC is present */
+#ifdef TCSUPPORT_MIPS_1004K
+	if(cpu_has_veic) {
+		/* When EIC is enabled, this field is the encoded (0:63) value of the current IPL.
+		   An interrupt will be signaled only if the present IPL is higher than this value. */
+		change_c0_status(ST0_IM, 0);
+	} else {
+		/* enable all interrupts' mask */
+		change_c0_status(ST0_IM, STATUSF_IP2 | STATUSF_IP3 | STATUSF_IP4 | STATUSF_IP5 | STATUSF_IP6 | STATUSF_IP7);
+	}
+#else
 	change_c0_status(ST0_IM, STATUSF_IP3 | STATUSF_IP4 | STATUSF_IP6 |
 				 STATUSF_IP7);
-
+#endif
 	/* Enable per-cpu interrupts: platform specific */
 
 #ifdef CONFIG_MIPS_MT_SMP

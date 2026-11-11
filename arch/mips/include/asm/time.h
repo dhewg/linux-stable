@@ -22,6 +22,14 @@
 extern spinlock_t rtc_lock;
 
 /*
+ * Timer interrupt functions.
+ * mips_timer_state is needed for high precision timer calibration.
+ * mips_timer_ack may be NULL if the interrupt is self-recoverable.
+ */
+extern void (*board_time_init)(void);
+extern void (*mips_timer_ack)(void);
+
+/*
  * RTC ops.  By default, they point to weak no-op RTC functions.
  *	rtc_mips_set_time - reverse the above translation and set time to RTC.
  *	rtc_mips_set_mmss - similar to rtc_set_time, but only min and sec need

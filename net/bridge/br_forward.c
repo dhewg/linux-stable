@@ -19,7 +19,10 @@
 #include <linux/skbuff.h>
 #include <linux/if_vlan.h>
 #include <linux/netfilter_bridge.h>
+#include "ecnt_br.h"
 #include "br_private.h"
+#include <ecnt_hook/ecnt_hook_net.h>
+
 
 static int deliver_clone(const struct net_bridge_port *prev,
 			 struct sk_buff *skb,
@@ -35,7 +38,7 @@ static inline int should_deliver(const struct net_bridge_port *p,
 		p->state == BR_STATE_FORWARDING;
 }
 
-int br_dev_queue_push_xmit(struct sk_buff *skb)
+__IMEM int br_dev_queue_push_xmit(struct sk_buff *skb)
 {
 	/* ip_fragment doesn't copy the MAC header */
 	if (nf_bridge_maybe_copy_header(skb) ||
@@ -51,15 +54,17 @@ int br_dev_queue_push_xmit(struct sk_buff *skb)
 }
 EXPORT_SYMBOL_GPL(br_dev_queue_push_xmit);
 
-int br_forward_finish(struct sk_buff *skb)
+__IMEM int br_forward_finish(struct sk_buff *skb)
 {
+	ECNT_BR_FRWARD_FINISH_HOOK(ECNT_BR_FORWARD_BR_FORWARD_FINISH, skb);
+	
 	return NF_HOOK(NFPROTO_BRIDGE, NF_BR_POST_ROUTING, skb, NULL, skb->dev,
 		       br_dev_queue_push_xmit);
-
+ 
 }
 EXPORT_SYMBOL_GPL(br_forward_finish);
 
-static void __br_deliver(const struct net_bridge_port *to, struct sk_buff *skb)
+__IMEM static void __br_deliver(const struct net_bridge_port *to, struct sk_buff *skb)
 {
 	skb = br_handle_vlan(to->br, nbp_get_vlan_info(to), skb);
 	if (!skb)
@@ -81,10 +86,11 @@ static void __br_deliver(const struct net_bridge_port *to, struct sk_buff *skb)
 		br_forward_finish);
 }
 
-static void __br_forward(const struct net_bridge_port *to, struct sk_buff *skb)
+__IMEM static void __br_forward(const struct net_bridge_port *to, struct sk_buff *skb)
 {
 	struct net_device *indev;
 
+	ecnt_br_forward_inline_hook(skb);
 	if (skb_warn_if_lro(skb)) {
 		kfree_skb(skb);
 		return;
@@ -103,7 +109,7 @@ static void __br_forward(const struct net_bridge_port *to, struct sk_buff *skb)
 }
 
 /* called with rcu_read_lock */
-void br_deliver(const struct net_bridge_port *to, struct sk_buff *skb)
+__IMEM void br_deliver(const struct net_bridge_port *to, struct sk_buff *skb)
 {
 	if (to && should_deliver(to, skb)) {
 		__br_deliver(to, skb);
@@ -115,8 +121,22 @@ void br_deliver(const struct net_bridge_port *to, struct sk_buff *skb)
 EXPORT_SYMBOL_GPL(br_deliver);
 
 /* called with rcu_read_lock */
-void br_forward(const struct net_bridge_port *to, struct sk_buff *skb, struct sk_buff *skb0)
+__IMEM void br_forward(const struct net_bridge_port *to, struct sk_buff *skb, struct sk_buff *skb0)
 {
+	struct net_data_s net_data;
+	int ret = 0;
+
+	net_data.pskb = &skb ;
+	ret = ECNT_BR_FORWARD_HOOK(ECNT_BR_FORWARD_BR_FORWARD, &net_data);
+	if(ECNT_RETURN == ret)
+	{
+		return ;
+	}
+	else if(ECNT_RETURN_DROP == ret)
+	{
+		goto out ;
+	}
+
 	if (should_deliver(to, skb)) {
 		if (skb0)
 			deliver_clone(to, skb, __br_forward);
@@ -125,9 +145,13 @@ void br_forward(const struct net_bridge_port *to, struct sk_buff *skb, struct sk
 		return;
 	}
 
+out:
 	if (!skb0)
 		kfree_skb(skb);
 }
+#if defined(TCSUPPORT_XPON_IGMP) || defined(CONFIG_HYFI_BRIDGE)
+EXPORT_SYMBOL(br_forward);
+#endif
 
 static int deliver_clone(const struct net_bridge_port *prev,
 			 struct sk_buff *skb,
@@ -160,6 +184,9 @@ static struct net_bridge_port *maybe_deliver(
 	if (!prev)
 		goto out;
 
+	if(-1 == ecnt_maybe_deliver_inline_hook(prev,skb))
+		goto out;
+
 	err = deliver_clone(prev, skb, __packet_hook);
 	if (err)
 		return ERR_PTR(err);
@@ -177,12 +204,28 @@ static void br_flood(struct net_bridge *br, struct sk_buff *skb,
 {
 	struct net_bridge_port *p;
 	struct net_bridge_port *prev;
+    struct net_data_s net_data;
+    int ret = 0;
 
 	prev = NULL;
 
+	net_data.pskb = &skb ;
+	ret = ECNT_BR_FORWARD_HOOK(ECNT_BR_FORWARD_BR_FLOOD, &net_data);
+	if(ECNT_RETURN == ret)
+	{
+		return ;
+	}
+	else if(ECNT_RETURN_DROP == ret)
+	{
+		goto out ;
+	}
+
+	ecnt_br_flood_inline_hook( br , skb );
+
 	list_for_each_entry_rcu(p, &br->port_list, list) {
 		/* Do not flood unicast traffic to ports that turn it off */
-		if (unicast && !(p->flags & BR_FLOOD))
+		if (unicast && !(p->flags & BR_FLOOD)
+			|| !ecnt_should_deliver(p, skb, 1) )
 			continue;
 		prev = maybe_deliver(prev, p, skb, __packet_hook);
 		if (IS_ERR(prev))
@@ -263,6 +306,9 @@ static void br_multicast_flood(struct net_bridge_mdb_entry *mdst,
 	return;
 
 out:
+	if(ECNT_RETURN == ecnt_br_multicast_flood_inline_hook(skb, skb0))
+		return;
+    
 	if (!skb0)
 		kfree_skb(skb);
 }
@@ -281,3 +327,4 @@ void br_multicast_forward(struct net_bridge_mdb_entry *mdst,
 	br_multicast_flood(mdst, skb, skb2, __br_forward);
 }
 #endif
+

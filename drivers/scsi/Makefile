@@ -172,6 +172,7 @@ scsi_mod-$(CONFIG_PM)		+= scsi_pm.o
 hv_storvsc-y			:= storvsc_drv.o
 
 sd_mod-objs	:= sd.o
+sd_mod-y	+= ecnt_scsi.o
 sd_mod-$(CONFIG_BLK_DEV_INTEGRITY) += sd_dif.o
 
 sr_mod-objs	:= sr.o sr_ioctl.o sr_vendor.o

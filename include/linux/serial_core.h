@@ -312,6 +312,13 @@ int setup_earlycon(char *buf, const char *match,
 extern int of_setup_earlycon(unsigned long addr,
 			     int (*setup)(struct earlycon_device *, const char *));
 
+/* TP-LINK tp_netlog [  */
+#ifdef INCLUDE_TP_NETLOG
+extern struct uart_port *tp_netlog_uart_port;
+extern void (*tp_netlog_send_buf)(unsigned int console_type, const char *buf, const int buf_len );
+#endif
+/* ] TP-LINK tp_netlog  */
+
 #define EARLYCON_DECLARE(name, func) \
 static int __init name ## _setup_earlycon(char *buf) \
 { \

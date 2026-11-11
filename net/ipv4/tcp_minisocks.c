@@ -96,6 +96,7 @@ tcp_timewait_state_process(struct inet_timewait_sock *tw, struct sk_buff *skb,
 	struct tcp_timewait_sock *tcptw = tcp_twsk((struct sock *)tw);
 	bool paws_reject = false;
 
+	memset(&tmp_opt, 0, sizeof(tmp_opt));
 	tmp_opt.saw_tstamp = 0;
 	if (th->doff > (sizeof(*th) >> 2) && tcptw->tw_ts_recent_stamp) {
 		tcp_parse_options(skb, &tmp_opt, 0, NULL);
@@ -542,6 +543,7 @@ struct sock *tcp_check_req(struct sock *sk, struct sk_buff *skb,
 
 	BUG_ON(fastopen == (sk->sk_state == TCP_LISTEN));
 
+	memset(&tmp_opt, 0, sizeof(tmp_opt));
 	tmp_opt.saw_tstamp = 0;
 	if (th->doff > (sizeof(struct tcphdr)>>2)) {
 		tcp_parse_options(skb, &tmp_opt, 0, NULL);

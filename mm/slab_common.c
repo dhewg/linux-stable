@@ -649,7 +649,7 @@ static inline int size_index_elem(size_t bytes)
  * Find the kmem_cache structure that serves a given size of
  * allocation
  */
-struct kmem_cache *kmalloc_slab(size_t size, gfp_t flags)
+__IMEM struct kmem_cache *kmalloc_slab(size_t size, gfp_t flags)
 {
 	int index;
 

@@ -328,6 +328,7 @@ main(int argc, char *argv[])
 		output = stdout;
 	} else {
 		struct stat ist, ost;
+		ist.st_mode = 0;
 		if (stat(ofilename, &ost) == 0 &&
 		    fstat(fileno(input), &ist) == 0)
 			overwriting = (ist.st_dev == ost.st_dev

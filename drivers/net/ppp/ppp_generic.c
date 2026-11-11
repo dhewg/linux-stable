@@ -54,6 +54,8 @@
 #include <net/net_namespace.h>
 #include <net/netns/generic.h>
 
+#include <ecnt_hook/ecnt_hook_net.h>
+
 #define PPP_VERSION	"2.4.2"
 
 /*
@@ -975,6 +977,15 @@ ppp_start_xmit(struct sk_buff *skb, struct net_device *dev)
 	struct ppp *ppp = netdev_priv(dev);
 	int npi, proto;
 	unsigned char *pp;
+	struct net_data_s net_data;
+	int ret = -1;
+
+	net_data.pskb = &skb;
+	ret =  ECNT_PPP_GENERIC_HOOK(ECNT_NET_PPP_XMIT,&net_data);
+	if (ECNT_RETURN_DROP == ret)
+	{
+		goto outf;
+	}
 
 	npi = ethertype_to_npindex(ntohs(skb->protocol));
 	if (npi < 0)

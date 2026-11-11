@@ -279,6 +279,7 @@
 #include <asm/uaccess.h>
 #include <asm/ioctls.h>
 #include <net/busy_poll.h>
+#include "ecnt_net_ipv4.h"
 
 int sysctl_tcp_fin_timeout __read_mostly = TCP_FIN_TIMEOUT;
 
@@ -1809,6 +1810,7 @@ do_prequeue:
 		continue;
 
 	found_ok_skb:
+		ecnt_tcp_recvmsg_inline_hook(sk, skb);
 		/* Ok so how much can we use? */
 		used = skb->len - offset;
 		if (len < used)

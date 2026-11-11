@@ -17,6 +17,16 @@ menuconfig WLAN
 
 if WLAN
 
+config RALINK_WIRELESS
+      tristate "Ralink wireless support"
+      depends on PCI
+      select WIRELESS_EXT
+      select WEXT_PRIV
+      select CRC_CCITT
+      select FW_LOADER
+       ---help---
+        Ralink wireless driver support
+
 config PCMCIA_RAYCS
 	tristate "Aviator/Raytheon 2.4GHz wireless support"
 	depends on PCMCIA

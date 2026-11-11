@@ -54,6 +54,7 @@
 #include <linux/moduleparam.h>
 
 #include "usb.h"
+#include "ecnt_drivers_usb_core.h"
 
 #define USB_MAXBUS			64
 #define USB_DEVICE_MAX			(USB_MAXBUS * 128)
@@ -1172,6 +1173,13 @@ static int proc_clearhalt(struct usb_dev_state *ps, void __user *arg)
 	ret = checkintf(ps, ret);
 	if (ret)
 		return ret;
+
+	/* USB3 Host will ignore the usb_clear_halt requested by up-layer */
+	if (ECNT_RETURN_DROP == ecnt_usb_proc_clearhalt_dev_inline_hook(ps->dev))
+	{
+		return 0;
+	}
+
 	check_reset_of_active_ep(ps->dev, ep, "CLEAR_HALT");
 	if (ep & USB_DIR_IN)
 		pipe = usb_rcvbulkpipe(ps->dev, ep & 0x7f);

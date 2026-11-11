@@ -49,6 +49,8 @@
 #include <linux/atmppp.h>
 
 #include "common.h"
+#include <ecnt_hook/ecnt_hook.h>
+#include "ecnt_net_atm.h"
 
 enum pppoatm_encaps {
 	e_autodetect = PPPOATM_ENCAPS_AUTODETECT,
@@ -181,6 +183,7 @@ static void pppoatm_unassign_vcc(struct atm_vcc *atmvcc)
 /* Called when an AAL5 PDU comes in */
 static void pppoatm_push(struct atm_vcc *atmvcc, struct sk_buff *skb)
 {
+	int ret;
 	struct pppoatm_vcc *pvcc = atmvcc_to_pvcc(atmvcc);
 	pr_debug("\n");
 	if (skb == NULL) {			/* VCC was closed */
@@ -194,6 +197,17 @@ static void pppoatm_push(struct atm_vcc *atmvcc, struct sk_buff *skb)
 		return;
 	}
 	atm_return(atmvcc, skb->truesize);
+
+	ret = ecnt_pppoatm_push_hook_inline_hook(atmvcc, skb);
+
+	if(ret){
+		if(ret == ECNT_HOOK_ERROR)
+            goto error;
+		else if(ret == ECNT_RETURN)
+            return;
+        }
+    else 
+    {
 	switch (pvcc->encaps) {
 	case e_llc:
 		if (skb->len < LLC_LEN ||
@@ -226,6 +240,8 @@ static void pppoatm_push(struct atm_vcc *atmvcc, struct sk_buff *skb)
 	case e_vc:
 		break;
 	}
+    }
+
 	ppp_input(&pvcc->chan, skb);
 	return;
 
@@ -236,6 +252,8 @@ error:
 
 static int pppoatm_may_send(struct pppoatm_vcc *pvcc, int size)
 {
+	if(ecnt_pppoatm_may_send_pppoa_inline_hook() == ECNT_RETURN_DROP)
+		return 1;
 	/*
 	 * It's not clear that we need to bother with using atm_may_send()
 	 * to check we don't exceed sk->sk_sndbuf. If userspace sets a
@@ -337,7 +355,9 @@ static int pppoatm_send(struct ppp_channel *chan, struct sk_buff *skb)
 			}
 		} else if (!pppoatm_may_send(pvcc, skb->truesize))
 			goto nospace;
+    #if 0// !defined(TCSUPPORT_CPU_MT7510) && !defined(TCSUPPORT_CPU_MT7505)
 		memcpy(skb_push(skb, LLC_LEN), pppllc, LLC_LEN);
+    #endif
 		break;
 	case e_vc:
 		if (!pppoatm_may_send(pvcc, skb->truesize))
@@ -376,6 +396,7 @@ static int pppoatm_devppp_ioctl(struct ppp_channel *chan, unsigned int cmd,
 {
 	switch (cmd) {
 	case PPPIOCGFLAGS:
+		ecnt_pppoatm_devppp_ioctl_config_inline_hook();
 		return put_user(chan_to_pvcc(chan)->flags, (int __user *) arg)
 		    ? -EFAULT : 0;
 	case PPPIOCSFLAGS:
@@ -405,6 +426,10 @@ static int pppoatm_assign_vcc(struct atm_vcc *atmvcc, void __user *arg)
 	if (be.encaps != PPPOATM_ENCAPS_AUTODETECT &&
 	    be.encaps != PPPOATM_ENCAPS_VC && be.encaps != PPPOATM_ENCAPS_LLC)
 		return -EINVAL;
+
+	if(ecnt_pppoatm_assign_vcc_init_inline_hook(atmvcc, be.encaps, &err) == ECNT_RETURN)
+            return err;
+    
 	pvcc = kzalloc(sizeof(*pvcc), GFP_KERNEL);
 	if (pvcc == NULL)
 		return -ENOMEM;
@@ -481,20 +506,20 @@ static struct atm_ioctl pppoatm_ioctl_ops = {
 	.ioctl	= pppoatm_ioctl,
 };
 
-static int __init pppoatm_init(void)
+ int  pppoatm_init(void)
 {
 	register_atm_ioctl(&pppoatm_ioctl_ops);
 	return 0;
 }
 
-static void __exit pppoatm_exit(void)
+ void  pppoatm_exit(void)
 {
 	deregister_atm_ioctl(&pppoatm_ioctl_ops);
 }
-
+#if 0
 module_init(pppoatm_init);
 module_exit(pppoatm_exit);
-
+#endif
 MODULE_AUTHOR("Mitchell Blank Jr <mitch@sfgoth.com>");
 MODULE_DESCRIPTION("RFC2364 PPP over ATM/AAL5");
 MODULE_LICENSE("GPL");

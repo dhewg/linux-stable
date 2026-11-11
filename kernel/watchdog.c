@@ -99,8 +99,8 @@ static int __init hardlockup_panic_setup(char *str)
 __setup("nmi_watchdog=", hardlockup_panic_setup);
 #endif
 
-unsigned int __read_mostly softlockup_panic =
-			CONFIG_BOOTPARAM_SOFTLOCKUP_PANIC_VALUE;
+unsigned int __read_mostly softlockup_panic = 0;
+/*			CONFIG_BOOTPARAM_SOFTLOCKUP_PANIC_VALUE;*/
 
 static int __init softlockup_panic_setup(char *str)
 {

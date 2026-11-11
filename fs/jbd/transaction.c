@@ -2146,7 +2146,8 @@ void __journal_file_buffer(struct journal_head *jh,
 		break;
 	}
 
-	__blist_add_buffer(list, jh);
+	if(list)
+		__blist_add_buffer(list, jh);
 	jh->b_jlist = jlist;
 
 	if (was_dirty)

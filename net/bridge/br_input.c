@@ -19,12 +19,24 @@
 #include <linux/export.h>
 #include <linux/rculist.h>
 #include "br_private.h"
+#include "ecnt_br.h"
 
 /* Hook for brouter */
 br_should_route_hook_t __rcu *br_should_route_hook __read_mostly;
 EXPORT_SYMBOL(br_should_route_hook);
 
-static int br_pass_frame_up(struct sk_buff *skb)
+/*add by liaoyilu 2020-11-30, for hyfi-bridge*/
+#ifdef CONFIG_HYFI_BRIDGE 
+/* Hook for external Multicast handler */
+br_multicast_handle_hook_t __rcu *br_multicast_handle_hook __read_mostly;
+EXPORT_SYMBOL_GPL(br_multicast_handle_hook);
+
+/* Hook for external forwarding logic */
+br_get_dst_hook_t __rcu *br_get_dst_hook __read_mostly;
+EXPORT_SYMBOL_GPL(br_get_dst_hook);
+#endif /*CONFIG_HYFI_BRIDGE*/
+
+__IMEM static int br_pass_frame_up(struct sk_buff *skb)
 {
 	struct net_device *indev, *brdev = BR_INPUT_SKB_CB(skb)->brdev;
 	struct net_bridge *br = netdev_priv(brdev);
@@ -58,7 +70,7 @@ static int br_pass_frame_up(struct sk_buff *skb)
 }
 
 /* note: already called with rcu_read_lock */
-int br_handle_frame_finish(struct sk_buff *skb)
+__IMEM int br_handle_frame_finish(struct sk_buff *skb)
 {
 	const unsigned char *dest = eth_hdr(skb)->h_dest;
 	struct net_bridge_port *p = br_port_get_rcu(skb->dev);
@@ -68,12 +80,30 @@ int br_handle_frame_finish(struct sk_buff *skb)
 	struct sk_buff *skb2;
 	bool unicast = true;
 	u16 vid = 0;
+    int ret = 0;
+/*add by liaoyilu 2020-11-30, for hyfi-bridge*/
+#ifdef CONFIG_HYFI_BRIDGE 
+	struct net_bridge_port *pdst = NULL;
+	br_get_dst_hook_t *get_dst_hook = rcu_dereference(br_get_dst_hook);
+#endif /*CONFIG_HYFI_BRIDGE*/
 
+#if defined(TCSUPPORT_RA_HWNAT)
+	skb->bridge_flag = 0;
+#endif
 	if (!p || p->state == BR_STATE_DISABLED)
 		goto drop;
 
 	if (!br_allowed_ingress(p->br, nbp_get_vlan_info(p), skb, &vid))
 		goto out;
+
+    dest = eth_hdr(skb)->h_dest;
+
+	ret = ecnt_br_handle_frame_finish_inline_hook(skb, vid);
+
+	if (ECNT_RETURN_DROP == ret)
+	{
+		goto drop;
+	}
 
 	/* insert into forwarding database after filtering to avoid spoofing */
 	br = p->br;
@@ -101,7 +131,17 @@ int br_handle_frame_finish(struct sk_buff *skb)
 		skb2 = skb;
 		unicast = false;
 	} else if (is_multicast_ether_addr(dest)) {
+/*add by liaoyilu 2020-11-30, for hyfi-bridge*/
+#ifdef CONFIG_HYFI_BRIDGE 
+		br_multicast_handle_hook_t *multicast_handle_hook = rcu_dereference(br_multicast_handle_hook);
+			if (!__br_get(multicast_handle_hook, true, p, skb))
+				goto out;
+#endif /*CONFIG_HYFI_BRIDGE*/
+		
 		mdst = br_mdb_get(br, skb, vid);
+        
+		ecnt_br_multicast_recover_vlan_inline_hook(skb);
+
 		if ((mdst || BR_INPUT_SKB_CB_MROUTERS_ONLY(skb)) &&
 		    br_multicast_querier_exists(br, eth_hdr(skb))) {
 			if ((mdst && mdst->mglist) ||
@@ -116,7 +156,38 @@ int br_handle_frame_finish(struct sk_buff *skb)
 
 		unicast = false;
 		br->dev->stats.multicast++;
-	} else if ((dst = __br_fdb_get(br, dest, vid)) &&
+	}
+/*add by liaoyilu 2020-11-30, for hyfi-bridge*/
+#ifdef CONFIG_HYFI_BRIDGE 
+	 else {
+			pdst = __br_get(get_dst_hook, NULL, p, &skb);
+			if (pdst) {
+				if (!skb)
+					goto out;
+			} else {
+				dst = __br_fdb_get(br, dest, vid);
+				if ((p->flags & BR_ISOLATE_MODE) ||
+					(dst && dst->is_local)) {
+					skb2 = skb;
+					/* Do not forward the packet since it's local.*/
+					skb = NULL;
+				}
+			}
+		}
+
+	if (skb) {
+		if (dst) {
+			dst->used = jiffies;
+			pdst = dst->dst;
+		}
+
+		if (pdst)
+			br_forward(pdst, skb, skb2);
+		else
+			br_flood_forward(br, skb, skb2, unicast);
+	}
+#else /*CONFIG_HYFI_BRIDGE*/
+    else if ((dst = __br_fdb_get(br, dest, vid)) &&
 			dst->is_local) {
 		skb2 = skb;
 		/* Do not forward the packet since it's local. */
@@ -130,6 +201,7 @@ int br_handle_frame_finish(struct sk_buff *skb)
 		} else
 			br_flood_forward(br, skb, skb2, unicast);
 	}
+#endif /*CONFIG_HYFI_BRIDGE*/
 
 	if (skb2)
 		return br_pass_frame_up(skb2);
@@ -158,7 +230,7 @@ static int br_handle_local_finish(struct sk_buff *skb)
  * Return NULL if skb is handled
  * note: already called with rcu_read_lock
  */
-rx_handler_result_t br_handle_frame(struct sk_buff **pskb)
+__IMEM rx_handler_result_t br_handle_frame(struct sk_buff **pskb)
 {
 	struct net_bridge_port *p;
 	struct sk_buff *skb = *pskb;
@@ -225,6 +297,7 @@ rx_handler_result_t br_handle_frame(struct sk_buff **pskb)
 forward:
 	switch (p->state) {
 	case BR_STATE_FORWARDING:
+		ecnt_br_input_state_forward_inline_hook(skb);
 		rhook = rcu_dereference(br_should_route_hook);
 		if (rhook) {
 			if ((*rhook)(skb)) {

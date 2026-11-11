@@ -26,7 +26,7 @@
 			 NETIF_F_GSO_MASK | NETIF_F_HW_CSUM)
 
 /* net device transmit always called with BH disabled */
-netdev_tx_t br_dev_xmit(struct sk_buff *skb, struct net_device *dev)
+__IMEM netdev_tx_t br_dev_xmit(struct sk_buff *skb, struct net_device *dev)
 {
 	struct net_bridge *br = netdev_priv(dev);
 	const unsigned char *dest = skb->data;
@@ -34,6 +34,11 @@ netdev_tx_t br_dev_xmit(struct sk_buff *skb, struct net_device *dev)
 	struct net_bridge_mdb_entry *mdst;
 	struct pcpu_sw_netstats *brstats = this_cpu_ptr(br->stats);
 	u16 vid = 0;
+/*add by liaoyilu 2020-11-30, for hyfi-bridge*/
+#ifdef CONFIG_HYFI_BRIDGE 
+	struct net_bridge_port *pdst;
+	br_get_dst_hook_t *get_dst_hook;
+#endif /*CONFIG_HYFI_BRIDGE*/
 
 	rcu_read_lock();
 #if IS_ENABLED(CONFIG_BRIDGE_NETFILTER)
@@ -57,9 +62,21 @@ netdev_tx_t br_dev_xmit(struct sk_buff *skb, struct net_device *dev)
 	if (!br_allowed_ingress(br, br_get_vlan_info(br), skb, &vid))
 		goto out;
 
+/*add by liaoyilu 2020-11-30, for hyfi-bridge*/
+#ifdef CONFIG_HYFI_BRIDGE 
+	get_dst_hook = rcu_dereference(br_get_dst_hook);
+#endif /*CONFIG_HYFI_BRIDGE*/
+	
+
 	if (is_broadcast_ether_addr(dest))
 		br_flood_deliver(br, skb, false);
 	else if (is_multicast_ether_addr(dest)) {
+/*add by liaoyilu 2020-11-30, for hyfi-bridge*/
+#ifdef CONFIG_HYFI_BRIDGE 
+		br_multicast_handle_hook_t *multicast_handle_hook = rcu_dereference(br_multicast_handle_hook);
+		if (!__br_get(multicast_handle_hook, true, NULL, skb))
+			goto out;
+#endif /*CONFIG_HYFI_BRIDGE*/
 		if (unlikely(netpoll_tx_running(dev))) {
 			br_flood_deliver(br, skb, false);
 			goto out;
@@ -75,10 +92,30 @@ netdev_tx_t br_dev_xmit(struct sk_buff *skb, struct net_device *dev)
 			br_multicast_deliver(mdst, skb);
 		else
 			br_flood_deliver(br, skb, false);
-	} else if ((dst = __br_fdb_get(br, dest, vid)) != NULL)
+	} 
+/*add by liaoyilu 2020-11-30, for hyfi-bridge*/
+#ifdef CONFIG_HYFI_BRIDGE 
+	else {
+			pdst = __br_get(get_dst_hook, NULL, NULL, &skb);
+			if (pdst) {
+				if (!skb)
+					goto out;
+				br_deliver(pdst, skb);
+			} else {
+				dst = __br_fdb_get(br, dest, vid);
+				if (dst)
+					br_deliver(dst->dst, skb);
+				else
+					br_flood_deliver(br, skb, true);
+			}
+		}	
+#else
+	else if ((dst = __br_fdb_get(br, dest, vid)) != NULL)
 		br_deliver(dst->dst, skb);
 	else
 		br_flood_deliver(br, skb, true);
+#endif /*CONFIG_HYFI_BRIDGE*/
+
 
 out:
 	rcu_read_unlock();
@@ -167,8 +204,14 @@ static struct rtnl_link_stats64 *br_get_stats64(struct net_device *dev,
 static int br_change_mtu(struct net_device *dev, int new_mtu)
 {
 	struct net_bridge *br = netdev_priv(dev);
+#ifdef TCSUPPORT_MAX_PACKET_2000
+	if (new_mtu < 68)
+#else /* !TCSUPPORT_MAX_PACKET_2000 */
 	if (new_mtu < 68 || new_mtu > br_min_mtu(br))
+#endif /* TCSUPPORT_MAX_PACKET_2000 */
+	{
 		return -EINVAL;
+	}
 
 	dev->mtu = new_mtu;
 

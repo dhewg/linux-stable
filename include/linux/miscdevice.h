@@ -19,6 +19,12 @@
 #define APOLLO_MOUSE_MINOR	7	/* unused */
 #define PC110PAD_MINOR		9	/* unused */
 /*#define ADB_MOUSE_MINOR	10	FIXME OBSOLETE */
+/* if TCSUPPORT_NEW_WDOG */
+#define WDOG0_MINOR		126	/* Wdog0 */
+#define WDOG1_MINOR		127	/* Wdog1 */
+#define WDOG2_MINOR		128	/* Wdog2 */
+#define WDOG3_MINOR		129	/* Wdog3 */
+/* endif TCSUPPORT_NEW_WDOG */
 #define WATCHDOG_MINOR		130	/* Watchdog timer     */
 #define TEMP_MINOR		131	/* Temperature Sensor */
 #define RTC_MINOR		135

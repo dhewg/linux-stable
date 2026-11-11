@@ -25,6 +25,8 @@
 #include <net/sock.h>
 
 #include "nf_internals.h"
+#include <linux/netfilter_ipv4.h>
+#include <ecnt_hook/ecnt_hook_net.h>
 
 static DEFINE_MUTEX(afinfo_mutex);
 
@@ -170,6 +172,8 @@ int nf_hook_slow(u_int8_t pf, unsigned int hook, struct sk_buff *skb,
 	struct nf_hook_ops *elem;
 	unsigned int verdict;
 	int ret = 0;
+    struct net_data_s net_data;
+ 
 
 	/* We may already have this, but read-locks nest anyway */
 	rcu_read_lock();
@@ -181,6 +185,10 @@ next_hook:
 	if (verdict == NF_ACCEPT || verdict == NF_STOP) {
 		ret = 1;
 	} else if ((verdict & NF_VERDICT_MASK) == NF_DROP) {
+	    if(NF_INET_LOCAL_IN == hook){
+            net_data.pskb = &skb ;
+            ECNT_NF_GENERIC_HOOK(ECNT_NET_NF_DLF, &net_data);
+        }
 		kfree_skb(skb);
 		ret = NF_DROP_GETERR(verdict);
 		if (ret == 0)
@@ -197,6 +205,14 @@ next_hook:
 			kfree_skb(skb);
 		}
 	}
+   
+    if(verdict == NF_ACCEPT){
+        if(NF_INET_POST_ROUTING== hook){
+            net_data.pskb = &skb ;
+            ECNT_NF_GENERIC_HOOK(ECNT_NET_NF_DLF_CLR, &net_data);
+        }
+    }
+
 	rcu_read_unlock();
 	return ret;
 }

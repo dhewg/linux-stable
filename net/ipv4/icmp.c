@@ -96,6 +96,7 @@
 #include <net/xfrm.h>
 #include <net/inet_common.h>
 #include <net/ip_fib.h>
+#include "ecnt_net_ipv4.h"
 
 /*
  *	Build xmit assembly blocks
@@ -556,6 +557,10 @@ void icmp_send(struct sk_buff *skb_in, int type, int code, __be32 info)
 	struct sock *sk;
 
 	if (!rt)
+		goto out;
+
+	if ( ECNT_RETURN == 
+		ecnt_icmp_send_inline_hook(skb_in, type, code, info) )
 		goto out;
 	net = dev_net(rt->dst.dev);
 

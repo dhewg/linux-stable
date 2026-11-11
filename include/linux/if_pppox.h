@@ -19,6 +19,9 @@
 #include <linux/netdevice.h>
 #include <linux/ppp_channel.h>
 #include <linux/skbuff.h>
+#ifdef CONFIG_TP_IMAGE
+#include <linux/workqueue.h>
+#endif /* CONFIG_TP_IMAGE */
 #include <uapi/linux/if_pppox.h>
 
 static inline struct pppoe_hdr *pppoe_hdr(const struct sk_buff *skb)
@@ -32,6 +35,9 @@ struct pppoe_opt {
 	struct pppoe_addr	pa;	  /* what this socket is bound to*/
 	struct sockaddr_pppox	relay;	  /* what socket data will be
 					     relayed to (PPPoE relaying) */
+#ifdef CONFIG_TP_IMAGE
+	struct work_struct      padt_work;/* Work item for handling PADT */
+#endif /* CONFIG_TP_IMAGE */
 };
 
 struct pptp_opt {

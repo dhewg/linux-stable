@@ -3,7 +3,9 @@
 #include <linux/if_vlan.h>
 #include <linux/netpoll.h>
 #include <linux/export.h>
+#include "ecnt_vlan.h"
 #include "vlan.h"
+#include <ecnt_hook/ecnt_hook_net.h>
 
 bool vlan_do_receive(struct sk_buff **skbp)
 {
@@ -14,12 +16,24 @@ bool vlan_do_receive(struct sk_buff **skbp)
 	struct vlan_pcpu_stats *rx_stats;
 
 	vlan_dev = vlan_find_dev(skb->dev, vlan_proto, vlan_id);
-	if (!vlan_dev)
+	if (!vlan_dev){
+		int ret;
+		ret = ecnt_vlan_receive_inline_hook(skbp, vlan_proto);
+		if(ret != ECNT_CONTINUE)
+			return true;
 		return false;
+	}
 
 	skb = *skbp = skb_share_check(skb, GFP_ATOMIC);
 	if (unlikely(!skb))
 		return false;
+
+	struct net_data_s net_data; 
+	net_data.pskb = &skb; 
+	net_data.vlan_skb_rcv_data.orig_dev = skb->dev; 
+	net_data.vlan_skb_rcv_data.vlan_dev = vlan_dev; 
+	net_data.vlan_skb_rcv_data.ptype = skb->pkt_type; 
+	ECNT_VLAN_DO_RCV_HOOK(ECNT_VLAN_SKB_RECV, &net_data);
 
 	skb->dev = vlan_dev;
 	if (unlikely(skb->pkt_type == PACKET_OTHERHOST)) {

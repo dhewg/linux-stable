@@ -112,6 +112,27 @@
 #define CP0_TX39_CACHE	$7
 
 /*
+ * TrendChip cache control register 
+ */
+#define CP0_CCTL 		$20		/* Lexra Cache Control Register */
+
+/*
+ * Lexra Cache Control Register fields
+ */
+#define CCTL_DINVAL	   	0x00000001
+#define CCTL_IINVAL		0x00000002
+#define CCTL_ILOCK		0x0000000c
+#define CCTL_IRAMFILL4 	0x00000010
+#define CCTL_IRAMOFF	0x00000020
+
+#define CCTL_IMEMFILL4 	0x00000010
+#define CCTL_IMEMOFF	0x00000020
+#define CCTL_DWB		0x00000100
+#define CCTL_DWBINVAL	0x00000200
+#define CCTL_DMEMON 	0x00000400
+#define CCTL_DMEMOFF 	0x00000800
+
+/*
  * Coprocessor 1 (FPU) register names
  */
 #define CP1_REVISION   $0
@@ -994,6 +1015,10 @@ do {									\
 	local_irq_restore(__flags);					\
 } while (0)
 
+/* TrendChip cache control register */
+#define read_c0_cctl()		__read_32bit_c0_register($20, 0)
+#define write_c0_cctl(val)	__write_32bit_c0_register($20, 0, val)
+
 #define read_c0_index()		__read_32bit_c0_register($0, 0)
 #define write_c0_index(val)	__write_32bit_c0_register($0, 0, val)
 
@@ -1205,6 +1230,9 @@ do {									\
 #define read_c0_taglo()		__read_32bit_c0_register($28, 0)
 #define write_c0_taglo(val)	__write_32bit_c0_register($28, 0, val)
 
+#define read_c0_idatalo()		__read_32bit_c0_register($28, 1)
+#define write_c0_idatalo(val)	__write_32bit_c0_register($28, 1, val)
+
 #define read_c0_dtaglo()	__read_32bit_c0_register($28, 2)
 #define write_c0_dtaglo(val)	__write_32bit_c0_register($28, 2, val)
 
@@ -1216,6 +1244,9 @@ do {									\
 
 #define read_c0_taghi()		__read_32bit_c0_register($29, 0)
 #define write_c0_taghi(val)	__write_32bit_c0_register($29, 0, val)
+
+#define read_c0_idatahi()		__read_32bit_c0_register($29, 1)
+#define write_c0_idatahi(val)	__write_32bit_c0_register($29, 1, val)
 
 #define read_c0_errorepc()	__read_ulong_c0_register($30, 0)
 #define write_c0_errorepc(val)	__write_ulong_c0_register($30, 0, val)

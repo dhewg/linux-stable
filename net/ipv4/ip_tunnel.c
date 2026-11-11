@@ -64,6 +64,8 @@
 #include <net/ip6_route.h>
 #endif
 
+#include <ecnt_hook/ecnt_hook_net.h>
+
 static unsigned int ip_tunnel_hash(__be32 key, __be32 remote)
 {
 	return hash_32((__force u32)key ^ (__force u32)remote,
@@ -426,6 +428,8 @@ int ip_tunnel_rcv(struct ip_tunnel *tunnel, struct sk_buff *skb,
 	struct pcpu_sw_netstats *tstats;
 	const struct iphdr *iph = ip_hdr(skb);
 	int err;
+	struct net_data_s net_data;
+	int ret = -1;
 
 #ifdef CONFIG_NET_IPGRE_BROADCAST
 	if (ipv4_is_multicast(iph->daddr)) {
@@ -478,6 +482,13 @@ int ip_tunnel_rcv(struct ip_tunnel *tunnel, struct sk_buff *skb,
 		skb_postpull_rcsum(skb, eth_hdr(skb), ETH_HLEN);
 	} else {
 		skb->dev = tunnel->dev;
+	}
+
+	net_data.pskb = &skb;
+	ret = ECNT_GRE_GENERIC_HOOK(ECNT_NET_GRE_TUNNEL_RECV, &net_data);
+	if (ECNT_RETURN == ret)
+	{
+        return 0;
 	}
 
 	gro_cells_receive(&tunnel->gro_cells, skb);
@@ -962,6 +973,7 @@ void ip_tunnel_dellink(struct net_device *dev, struct list_head *head)
 {
 	struct ip_tunnel *tunnel = netdev_priv(dev);
 	struct ip_tunnel_net *itn;
+	struct net_data_s net_data;
 
 	itn = net_generic(tunnel->net, tunnel->ip_tnl_net_id);
 
@@ -969,6 +981,8 @@ void ip_tunnel_dellink(struct net_device *dev, struct list_head *head)
 		ip_tunnel_del(netdev_priv(dev));
 		unregister_netdevice_queue(dev, head);
 	}
+	net_data.device = dev;
+	ECNT_GRE_GENERIC_HOOK(ECNT_NET_GRE_DELLINK, &net_data);
 }
 EXPORT_SYMBOL_GPL(ip_tunnel_dellink);
 

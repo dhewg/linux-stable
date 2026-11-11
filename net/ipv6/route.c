@@ -1009,7 +1009,12 @@ void ip6_route_input(struct sk_buff *skb)
 		.daddr = iph->daddr,
 		.saddr = iph->saddr,
 		.flowlabel = ip6_flowinfo(iph),
+/* add for LAN/WAN binding , by wangwenhao 2Nov22 */
+#if defined(CONFIG_TP_IMAGE) && defined(INCLUDE_TP_MARK)
+		.flowi6_mark = skb->mark2,
+#else /* defined(CONFIG_TP_IMAGE) && defined(INCLUDE_TP_MARK) */
 		.flowi6_mark = skb->mark,
+#endif /* defined(CONFIG_TP_IMAGE) && defined(INCLUDE_TP_MARK) */
 		.flowi6_proto = iph->nexthdr,
 	};
 

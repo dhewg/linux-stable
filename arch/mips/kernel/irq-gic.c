@@ -6,6 +6,7 @@
  * Copyright (C) 2008 Ralf Baechle (ralf@linux-mips.org)
  * Copyright (C) 2012 MIPS Technologies, Inc.  All rights reserved.
  */
+#include <linux/version.h>
 #include <linux/bitmap.h>
 #include <linux/init.h>
 #include <linux/smp.h>
@@ -249,6 +250,7 @@ static int gic_set_affinity(struct irq_data *d, const struct cpumask *cpumask,
 	int		i;
 
 	cpumask_and(&tmp, cpumask, cpu_online_mask);
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,4,90)
 	if (cpus_empty(tmp))
 		return -1;
 
@@ -264,6 +266,24 @@ static int gic_set_affinity(struct irq_data *d, const struct cpumask *cpumask,
 	set_bit(irq, pcpu_masks[first_cpu(tmp)].pcpu_mask);
 
 	cpumask_copy(d->affinity, cpumask);
+#else
+	if (cpumask_empty(&tmp))
+		return -1;
+
+	/* Assumption : cpumask refers to a single CPU */
+	spin_lock_irqsave(&gic_lock, flags);
+
+	/* Re-route this IRQ */
+	GIC_SH_MAP_TO_VPE_SMASK(irq, cpumask_first(&tmp));
+
+	/* Update the pcpu_masks */
+	for (i = 0; i < NR_CPUS; i++)
+		clear_bit(irq, pcpu_masks[i].pcpu_mask);
+	
+	set_bit(irq, pcpu_masks[cpumask_first(&tmp)].pcpu_mask);
+
+	cpumask_copy(d->common->affinity, cpumask);
+#endif
 	spin_unlock_irqrestore(&gic_lock, flags);
 
 	return IRQ_SET_MASK_OK_NOCOPY;

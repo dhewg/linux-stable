@@ -15,7 +15,8 @@ static cycle_t c0_hpt_read(struct clocksource *cs)
 	return read_c0_count();
 }
 
-static struct clocksource clocksource_mips = {
+//static 
+struct clocksource clocksource_mips = {
 	.name		= "MIPS",
 	.read		= c0_hpt_read,
 	.mask		= CLOCKSOURCE_MASK(32),

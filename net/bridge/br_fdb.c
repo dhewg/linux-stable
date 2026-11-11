@@ -21,10 +21,12 @@
 #include <linux/jhash.h>
 #include <linux/random.h>
 #include <linux/slab.h>
+#include <ecnt_hook/ecnt_hook_net.h>
 #include <linux/atomic.h>
 #include <asm/unaligned.h>
 #include <linux/if_vlan.h>
 #include "br_private.h"
+#include "ecnt_br.h"
 
 static struct kmem_cache *br_fdb_cache __read_mostly;
 static struct net_bridge_fdb_entry *fdb_find(struct hlist_head *head,
@@ -37,6 +39,25 @@ static void fdb_notify(struct net_bridge *br,
 
 static u32 fdb_salt __read_mostly;
 
+/*add by liaoyilu 2020-12-11, for hyfi-bridge*/
+#ifdef CONFIG_HYFI_BRIDGE 
+ATOMIC_NOTIFIER_HEAD(br_fdb_notifier_list);
+
+void br_fdb_register_notify(struct notifier_block *nb)
+{
+	atomic_notifier_chain_register(&br_fdb_notifier_list, nb);
+}
+EXPORT_SYMBOL_GPL(br_fdb_register_notify);
+
+void br_fdb_unregister_notify(struct notifier_block *nb)
+{
+	atomic_notifier_chain_unregister(&br_fdb_notifier_list, nb);
+}
+EXPORT_SYMBOL_GPL(br_fdb_unregister_notify);
+/* Hook for external compat port check */
+br_ports_compatible_hook_t __rcu *br_ports_compatible_hook __read_mostly;
+EXPORT_SYMBOL_GPL(br_ports_compatible_hook);
+#endif /*CONFIG_HYFI_BRIDGE*/
 int __init br_fdb_init(void)
 {
 	br_fdb_cache = kmem_cache_create("bridge_fdb_cache",
@@ -47,6 +68,9 @@ int __init br_fdb_init(void)
 		return -ENOMEM;
 
 	get_random_bytes(&fdb_salt, sizeof(fdb_salt));
+
+	ecnt_br_fdb_init_inline_hook();
+
 	return 0;
 }
 
@@ -71,7 +95,7 @@ static inline int has_expired(const struct net_bridge *br,
 		time_before_eq(fdb->updated + hold_time(br), jiffies);
 }
 
-static inline int br_mac_hash(const unsigned char *mac, __u16 vid)
+inline int br_mac_hash(const unsigned char *mac, __u16 vid)
 {
 	/* use 1 byte of OUI and 3 bytes of NIC */
 	u32 key = get_unaligned((u32 *)(mac + 2));
@@ -134,7 +158,12 @@ static void fdb_delete(struct net_bridge *br, struct net_bridge_fdb_entry *f)
 {
 	if (f->is_static)
 		fdb_del_hw(br, f->addr.addr);
-
+	struct net_data_s net_data;
+	net_data.br_fdb_data.fdb = f;
+	net_data.br_fdb_data.addr = f->addr.addr;
+	net_data.source = NULL;
+	net_data.pskb = NULL;
+	ECNT_BR_FDB_HOOK(ECNT_BR_FDB_DELETE, &net_data);
 	hlist_del_rcu(&f->hlist);
 	fdb_notify(br, f, RTM_DELNEIGH);
 	call_rcu(&f->rcu, fdb_rcu_free);
@@ -266,6 +295,24 @@ out:
 	spin_unlock_bh(&br->hash_lock);
 }
 
+/*add by liaoyilu 2020-12-11, for hyfi-bridge*/
+#ifdef CONFIG_HYFI_BRIDGE 
+ATOMIC_NOTIFIER_HEAD(br_fdb_update_notifier_list);
+
+void br_fdb_update_register_notify(struct notifier_block *nb)
+{
+	atomic_notifier_chain_register(&br_fdb_update_notifier_list, nb);
+}
+EXPORT_SYMBOL_GPL(br_fdb_update_register_notify);
+
+void br_fdb_update_unregister_notify(struct notifier_block *nb)
+{
+	atomic_notifier_chain_unregister(&br_fdb_update_notifier_list, nb);
+}
+EXPORT_SYMBOL_GPL(br_fdb_update_unregister_notify);
+
+#endif /*CONFIG_HYFI_BRIDGE*/
+
 void br_fdb_cleanup(unsigned long _data)
 {
 	struct net_bridge *br = (struct net_bridge *)_data;
@@ -341,13 +388,18 @@ void br_fdb_delete_by_port(struct net_bridge *br,
 	}
 	spin_unlock_bh(&br->hash_lock);
 }
+/*add by liaoyilu 2020-12-11, for hyfi-bridge*/
+#ifdef CONFIG_HYFI_BRIDGE 
+EXPORT_SYMBOL_GPL(br_fdb_delete_by_port);
+#endif /*CONFIG_HYFI_BRIDGE*/
 
 /* No locking or refcounting, assumes caller has rcu_read_lock */
-struct net_bridge_fdb_entry *__br_fdb_get(struct net_bridge *br,
+__IMEM struct net_bridge_fdb_entry *__br_fdb_get(struct net_bridge *br,
 					  const unsigned char *addr,
 					  __u16 vid)
 {
 	struct net_bridge_fdb_entry *fdb;
+	struct net_data_s net_data;
 
 	hlist_for_each_entry_rcu(fdb,
 				&br->hash[br_mac_hash(addr, vid)], hlist) {
@@ -358,9 +410,17 @@ struct net_bridge_fdb_entry *__br_fdb_get(struct net_bridge *br,
 			return fdb;
 		}
 	}
-
+	net_data.br_fdb_data.fdb = NULL;
+	net_data.br_fdb_data.addr = addr;
+	net_data.source = NULL;
+	net_data.pskb = NULL;
+	ECNT_BR_FDB_HOOK(ECNT_BR_FDB_GET, &net_data);
+	
 	return NULL;
 }
+
+EXPORT_SYMBOL(__br_fdb_get);
+
 
 #if IS_ENABLED(CONFIG_ATM_LANE)
 /* Interface used by ATM LANE hook to test
@@ -472,6 +532,7 @@ static struct net_bridge_fdb_entry *fdb_create(struct hlist_head *head,
 					       __u16 vid)
 {
 	struct net_bridge_fdb_entry *fdb;
+	struct net_data_s net_data;
 
 	fdb = kmem_cache_alloc(br_fdb_cache, GFP_ATOMIC);
 	if (fdb) {
@@ -483,6 +544,11 @@ static struct net_bridge_fdb_entry *fdb_create(struct hlist_head *head,
 		fdb->added_by_user = 0;
 		fdb->updated = fdb->used = jiffies;
 		hlist_add_head_rcu(&fdb->hlist, head);
+		net_data.br_fdb_data.fdb = fdb;
+		net_data.br_fdb_data.addr = addr;
+		net_data.source = NULL;
+		net_data.pskb = NULL;
+		ECNT_BR_FDB_HOOK(ECNT_BR_FDB_CREATE, &net_data);
 	}
 	return fdb;
 }
@@ -531,12 +597,18 @@ int br_fdb_insert(struct net_bridge *br, struct net_bridge_port *source,
 	return ret;
 }
 
-void br_fdb_update(struct net_bridge *br, struct net_bridge_port *source,
+__IMEM void br_fdb_update(struct net_bridge *br, struct net_bridge_port *source,
 		   const unsigned char *addr, u16 vid, bool added_by_user)
 {
 	struct hlist_head *head = &br->hash[br_mac_hash(addr, vid)];
 	struct net_bridge_fdb_entry *fdb;
 	bool fdb_modified = false;
+/*add by liaoyilu 2020-12-11, for hyfi-bridge*/
+#ifdef CONFIG_HYFI_BRIDGE 
+	bool fdb_compat = false;
+	struct br_fdb_event fdb_event;
+#endif /*CONFIG_HYFI_BRIDGE*/
+	struct net_data_s net_data;
 
 	/* some users want to always flood. */
 	if (hold_time(br) == 0)
@@ -551,21 +623,65 @@ void br_fdb_update(struct net_bridge *br, struct net_bridge_port *source,
 	if (likely(fdb)) {
 		/* attempt to update an entry for a local interface */
 		if (unlikely(fdb->is_local)) {
+/*add by liaoyilu 2020-12-11, for hyfi-bridge*/
+#ifdef CONFIG_HYFI_BRIDGE 
+			fdb_notify(br, fdb, RTM_NEIGHLOOP);
+#endif /*CONFIG_HYFI_BRIDGE*/
 			if (net_ratelimit())
 				br_warn(br, "received packet on %s with "
 					"own address as source address\n",
 					source->dev->name);
 		} else {
 			/* fastpath: update of existing entry */
+			net_data.br_fdb_data.fdb = fdb;
+			net_data.br_fdb_data.addr = addr;
+			net_data.source = source;
+			net_data.pskb = NULL;
+			ECNT_BR_FDB_HOOK(ECNT_BR_FDB_UPDATE, &net_data);
+
 			if (unlikely(source != fdb->dst)) {
+/*add by liaoyilu 2020-12-11, for hyfi-bridge*/
+#ifdef CONFIG_HYFI_BRIDGE 
+				br_ports_compatible_hook_t *ports_compatible_hook;
+				ports_compatible_hook = rcu_dereference(br_ports_compatible_hook);
+				if (ports_compatible_hook && ports_compatible_hook(source, fdb->dst))
+					fdb_compat = true;
+				ether_addr_copy(fdb_event.addr, addr);
+				fdb_event.br = br;
+				fdb_event.orig_dev = fdb->dst->dev;
+				fdb_event.dev = source->dev;
+				fdb_event.port_compatible = fdb_compat;
+#endif /*CONFIG_HYFI_BRIDGE*/
 				fdb->dst = source;
 				fdb_modified = true;
+/*add by liaoyilu 2020-12-11, for hyfi-bridge*/
+#ifdef CONFIG_HYFI_BRIDGE 
+				atomic_notifier_call_chain(
+					&br_fdb_update_notifier_list,
+					0, (void *)&fdb_event);
+#endif /*CONFIG_HYFI_BRIDGE*/
+#ifdef CONFIG_TP_IMAGE
+				if (NULL != hwnat_clean_entry_by_dst_mac_hook)
+				{
+					printk("hwnat_clean_entry_by_dst_mac_hook %02x:%02x:%02x:%02x:%02x:%02x\r\n", 
+						addr[0],addr[1],addr[2],addr[3],addr[4],addr[5]);
+					hwnat_clean_entry_by_dst_mac_hook(addr);
+				}
+#endif
 			}
 			fdb->updated = jiffies;
 			if (unlikely(added_by_user))
 				fdb->added_by_user = 1;
+				
+/*add by liaoyilu 2020-12-11, for hyfi-bridge*/
+#ifdef CONFIG_HYFI_BRIDGE 
+			if (unlikely(fdb_modified && !fdb_compat))
+				fdb_notify(br, fdb, RTM_UPDATENEIGH);
+#else
 			if (unlikely(fdb_modified))
 				fdb_notify(br, fdb, RTM_NEWNEIGH);
+#endif /*CONFIG_HYFI_BRIDGE*/
+
 		}
 	} else {
 		spin_lock(&br->hash_lock);
@@ -583,14 +699,15 @@ void br_fdb_update(struct net_bridge *br, struct net_bridge_port *source,
 		spin_unlock(&br->hash_lock);
 	}
 }
+EXPORT_SYMBOL(br_fdb_update);
 
-static int fdb_to_nud(const struct net_bridge_fdb_entry *fdb)
+static int fdb_to_nud(const struct net_bridge *br, const struct net_bridge_fdb_entry *fdb)
 {
 	if (fdb->is_local)
 		return NUD_PERMANENT;
 	else if (fdb->is_static)
 		return NUD_NOARP;
-	else if (has_expired(fdb->dst->br, fdb))
+	else if (has_expired(br, fdb))
 		return NUD_STALE;
 	else
 		return NUD_REACHABLE;
@@ -616,7 +733,7 @@ static int fdb_fill_info(struct sk_buff *skb, const struct net_bridge *br,
 	ndm->ndm_flags	 = 0;
 	ndm->ndm_type	 = 0;
 	ndm->ndm_ifindex = fdb->dst ? fdb->dst->dev->ifindex : br->dev->ifindex;
-	ndm->ndm_state   = fdb_to_nud(fdb);
+	ndm->ndm_state   = fdb_to_nud(br, fdb);
 
 	if (nla_put(skb, NDA_LLADDR, ETH_ALEN, &fdb->addr))
 		goto nla_put_failure;
@@ -654,7 +771,40 @@ static void fdb_notify(struct net_bridge *br,
 	struct net *net = dev_net(br->dev);
 	struct sk_buff *skb;
 	int err = -ENOBUFS;
+/*add by liaoyilu 2020-12-11, for hyfi-bridge*/
+#ifdef CONFIG_HYFI_BRIDGE 
+	if (type == RTM_UPDATENEIGH)
+	{
+		if (fdb->dst)
+			__br_notify(RTNLGRP_NEIGH, type, fdb);
+		return;
+            
+	}
+	
+	if (type == RTM_NEIGHLOOP)
+	{
+		__br_notify(RTNLGRP_NEIGH, type, br);
+		return;
+            
+	}
+	
+	if (fdb->dst) {
+		int event;
+		struct br_fdb_event fdb_event;
 
+		if (type == RTM_NEWNEIGH)
+			event = BR_FDB_EVENT_ADD;
+		else
+			event = BR_FDB_EVENT_DEL;
+
+		fdb_event.dev = fdb->dst->dev;
+		ether_addr_copy(fdb_event.addr, fdb->addr.addr);
+		fdb_event.is_local = fdb->is_local;
+		atomic_notifier_call_chain(&br_fdb_notifier_list,
+					   event,
+					   (void *)&fdb_event);
+	}
+#endif /*CONFIG_HYFI_BRIDGE*/
 	skb = nlmsg_new(fdb_nlmsg_size(), GFP_ATOMIC);
 	if (skb == NULL)
 		goto errout;
@@ -666,6 +816,10 @@ static void fdb_notify(struct net_bridge *br,
 		kfree_skb(skb);
 		goto errout;
 	}
+/*add by liaoyilu 2020-11-30, for hyfi-bridge*/
+#ifdef CONFIG_HYFI_BRIDGE 
+	__br_notify(RTNLGRP_NEIGH, type, fdb);
+#endif /*CONFIG_HYFI_BRIDGE*/
 	rtnl_notify(skb, net, 0, RTNLGRP_NEIGH, NULL, GFP_ATOMIC);
 	return;
 errout:
@@ -749,7 +903,7 @@ static int fdb_add_entry(struct net_bridge_port *source, const __u8 *addr,
 		}
 	}
 
-	if (fdb_to_nud(fdb) != state) {
+	if (fdb_to_nud(br, fdb) != state) {
 		if (state & NUD_PERMANENT) {
 			fdb->is_local = 1;
 			if (!fdb->is_static) {

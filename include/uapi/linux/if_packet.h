@@ -54,6 +54,7 @@ struct sockaddr_ll {
 #define PACKET_FANOUT			18
 #define PACKET_TX_HAS_OFF		19
 #define PACKET_QDISC_BYPASS		20
+#define PACKET_SKB_FOE_INFO 	21
 
 #define PACKET_FANOUT_HASH		0
 #define PACKET_FANOUT_LB		1
@@ -191,7 +192,11 @@ struct tpacket_hdr_v1 {
 	 *    you can see which blk[s] is[are] outstanding etc.
 	 * 3. Validate kernel code.
 	 */
+	 #if 0
 	__aligned_u64	seq_num;
+	 #else
+	 __u64 seq_num;
+	 #endif
 
 	/*
 	 * ts_last_pkt:

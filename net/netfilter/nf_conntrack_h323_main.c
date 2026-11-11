@@ -33,6 +33,7 @@
 #include <net/netfilter/nf_conntrack_helper.h>
 #include <net/netfilter/nf_conntrack_zones.h>
 #include <linux/netfilter/nf_conntrack_h323.h>
+#include "ecnt_netfilter.h"
 
 /* Parameters */
 static unsigned int default_rrq_ttl __read_mostly = 300;
@@ -590,6 +591,9 @@ static int h245_help(struct sk_buff *skb, unsigned int protoff,
 
 	/* Until there's been traffic both ways, don't look in packets. */
 	if (ctinfo != IP_CT_ESTABLISHED && ctinfo != IP_CT_ESTABLISHED_REPLY)
+		return NF_ACCEPT;
+
+	if ( ECNT_RETURN == ecnt_nf_conntrack_h245_help_inline_hook(skb, ct) )
 		return NF_ACCEPT;
 
 	pr_debug("nf_ct_h245: skblen = %u\n", skb->len);
@@ -1165,6 +1169,9 @@ static int q931_help(struct sk_buff *skb, unsigned int protoff,
 
 	/* Until there's been traffic both ways, don't look in packets. */
 	if (ctinfo != IP_CT_ESTABLISHED && ctinfo != IP_CT_ESTABLISHED_REPLY)
+		return NF_ACCEPT;
+
+	if ( ECNT_RETURN == ecnt_nf_conntrack_q31_help_inline_hook(skb, ct) )
 		return NF_ACCEPT;
 
 	pr_debug("nf_ct_q931: skblen = %u\n", skb->len);
@@ -1765,6 +1772,9 @@ static int ras_help(struct sk_buff *skb, unsigned int protoff,
 	unsigned char *data;
 	int datalen = 0;
 	int ret;
+
+	if ( ECNT_RETURN == ecnt_nf_conntrack_ras_help_inline_hook(skb, ct) )
+		return NF_ACCEPT;
 
 	pr_debug("nf_ct_ras: skblen = %u\n", skb->len);
 

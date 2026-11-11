@@ -74,6 +74,8 @@
 #include <asm/uaccess.h>
 #include <trace/events/skb.h>
 #include <linux/highmem.h>
+#include <linux/ecnt_skbuff.h>
+#include "ecnt_net_core.h"
 
 struct kmem_cache *skbuff_head_cache __read_mostly;
 static struct kmem_cache *skbuff_fclone_cache __read_mostly;
@@ -120,7 +122,7 @@ static void skb_under_panic(struct sk_buff *skb, unsigned int sz, void *addr)
 #define kmalloc_reserve(size, gfp, node, pfmemalloc) \
 	 __kmalloc_reserve(size, gfp, node, _RET_IP_, pfmemalloc)
 
-static void *__kmalloc_reserve(size_t size, gfp_t flags, int node,
+__IMEM static void *__kmalloc_reserve(size_t size, gfp_t flags, int node,
 			       unsigned long ip, bool *pfmemalloc)
 {
 	void *obj;
@@ -194,8 +196,8 @@ out:
  *
  *	Buffers may only be allocated from interrupts using a @gfp_mask of
  *	%GFP_ATOMIC.
- */
-struct sk_buff *__alloc_skb(unsigned int size, gfp_t gfp_mask,
+ */  
+__IMEM struct sk_buff *__alloc_skb(unsigned int size, gfp_t gfp_mask,
 			    int flags, int node)
 {
 	struct kmem_cache *cache;
@@ -214,6 +216,13 @@ struct sk_buff *__alloc_skb(unsigned int size, gfp_t gfp_mask,
 	skb = kmem_cache_alloc_node(cache, gfp_mask & ~__GFP_DMA, node);
 	if (!skb)
 		goto out;
+#if defined(CONFIG_CPU_TC3162) || defined(CONFIG_MIPS_TC3262)	
+	/*if number of skb reach the max number,go to nodata*/
+	if(atomic_read(&g_used_skb_num) > g_max_skb_num){
+			goto nodata;
+	}
+#endif
+   
 	prefetchw(skb);
 
 	/* We do our best to align skb_shared_info on a separate cache
@@ -232,13 +241,25 @@ struct sk_buff *__alloc_skb(unsigned int size, gfp_t gfp_mask,
 	 */
 	size = SKB_WITH_OVERHEAD(ksize(data));
 	prefetchw(data + size);
+#if defined(CONFIG_CPU_TC3162) || defined(CONFIG_MIPS_TC3262)
+	/*alloc successfully*/
+	atomic_inc(&g_used_skb_num);
+	if(peak_skb_num < atomic_read(&g_used_skb_num))
+	{
+		peak_skb_num = atomic_read(&g_used_skb_num);
+	}
+#endif
 
 	/*
 	 * Only clear those fields we need to clear, not those that we will
 	 * actually initialise below. Hence, don't put any more fields after
 	 * the tail pointer in struct sk_buff!
 	 */
+#ifdef TCSUPPORT_WLAN_SW_RPS 
+	memset(skb, 0, offsetof(struct sk_buff, pAd));
+#else	 
 	memset(skb, 0, offsetof(struct sk_buff, tail));
+#endif
 	/* Account for allocated memory : skb + skb->head */
 	skb->truesize = SKB_TRUESIZE(size);
 	skb->pfmemalloc = pfmemalloc;
@@ -302,6 +323,13 @@ struct sk_buff *__build_skb(void *data, unsigned int frag_size)
 	struct sk_buff *skb;
 	unsigned int size = frag_size ? : ksize(data);
 
+	
+#if defined(CONFIG_CPU_TC3162) || defined(CONFIG_MIPS_TC3262)	
+	/*if number of skb reach the max number,go to nodata*/
+	if(atomic_read(&g_used_skb_num) > g_max_skb_num){
+		return NULL;
+	}
+#endif
 	skb = kmem_cache_alloc(skbuff_head_cache, GFP_ATOMIC);
 	if (!skb)
 		return NULL;
@@ -323,7 +351,17 @@ struct sk_buff *__build_skb(void *data, unsigned int frag_size)
 	memset(shinfo, 0, offsetof(struct skb_shared_info, dataref));
 	atomic_set(&shinfo->dataref, 1);
 	kmemcheck_annotate_variable(shinfo->destructor_arg);
-
+#if defined(CONFIG_CPU_TC3162) || defined(CONFIG_MIPS_TC3262)
+	if (!is_vmalloc_addr(data))
+	{
+		/*alloc successfully*/
+		atomic_inc(&g_used_skb_num);
+		if(peak_skb_num < atomic_read(&g_used_skb_num))
+		{
+			peak_skb_num = atomic_read(&g_used_skb_num);
+		}
+	}
+#endif
 	return skb;
 }
 
@@ -516,9 +554,13 @@ static void skb_free_head(struct sk_buff *skb)
 		put_page(virt_to_head_page(skb->head));
 	else
 		kfree(skb->head);
+#if defined(CONFIG_CPU_TC3162) || defined(CONFIG_MIPS_TC3262)
+	/*sub used skb number*/
+	atomic_dec(&g_used_skb_num);
+#endif
 }
 
-static void skb_release_data(struct sk_buff *skb)
+__IMEM void skb_release_data(struct sk_buff *skb)
 {
 	struct skb_shared_info *shinfo = skb_shinfo(skb);
 	int i;
@@ -552,9 +594,14 @@ static void skb_release_data(struct sk_buff *skb)
 /*
  *	Free an skbuff by memory without cleaning the state.
  */
-static void kfree_skbmem(struct sk_buff *skb)
+__IMEM void kfree_skbmem(struct sk_buff *skb)
 {
 	struct sk_buff_fclones *fclones;
+
+#if defined(TCSUPPORT_RA_HWNAT)
+	if (ra_sw_nat_hook_free)
+		ra_sw_nat_hook_free(skb);
+#endif
 
 	switch (skb->fclone) {
 	case SKB_FCLONE_UNAVAILABLE:
@@ -581,7 +628,7 @@ static void kfree_skbmem(struct sk_buff *skb)
 	}
 }
 
-static void skb_release_head_state(struct sk_buff *skb)
+__IMEM static void skb_release_head_state(struct sk_buff *skb)
 {
 	skb_dst_drop(skb);
 #ifdef CONFIG_XFRM
@@ -604,6 +651,22 @@ static void skb_release_head_state(struct sk_buff *skb)
 	skb->tc_verd = 0;
 #endif
 #endif
+#if defined(CONFIG_CPU_TC3162) || defined(CONFIG_MIPS_TC3262)
+	if (skb->skb_recycling_ind == SKBMGR_INDICATION) {
+		atomic_dec(&skbmgr_alloc_no);
+		skb->skb_recycling_ind = 0;
+	}else if(skb->skb_recycling_ind == SKBMGR_4K_INDICATION){
+		atomic_dec(&skbmgr_4k_alloc_no);
+		skb->skb_recycling_ind = 0;
+	}
+#if defined(TCSUPPORT_LRO_ENABLE)
+	else if(skb->skb_recycling_ind == SKBMGR_LRO_INDICATION){
+		atomic_dec(&skbmgr_lro_alloc_no);
+		skb->skb_recycling_ind = 0;
+	}
+#endif
+#endif
+
 }
 
 /* Free everything but the sk_buff shell. */
@@ -623,9 +686,23 @@ static void skb_release_all(struct sk_buff *skb)
  *	always call kfree_skb
  */
 
-void __kfree_skb(struct sk_buff *skb)
+__IMEM void __kfree_skb(struct sk_buff *skb)
 {
+#if defined(CONFIG_CPU_TC3162) || defined(CONFIG_MIPS_TC3262)
+	skb_release_head_state(skb);
+
+	if (skb->skb_recycling_callback) {
+		if ((*skb->skb_recycling_callback)(skb)) {
+			return;
+		} 
+	} 
+	skb->skb_recycling_callback = NULL;
+
+	if (likely(skb->head))
+		skb_release_data(skb);
+#else
 	skb_release_all(skb);
+#endif
 	kfree_skbmem(skb);
 }
 EXPORT_SYMBOL(__kfree_skb);
@@ -637,7 +714,7 @@ EXPORT_SYMBOL(__kfree_skb);
  *	Drop a reference to the buffer and free it if the usage count has
  *	hit zero.
  */
-void kfree_skb(struct sk_buff *skb)
+__IMEM void kfree_skb(struct sk_buff *skb)
 {
 	if (unlikely(!skb))
 		return;
@@ -689,7 +766,7 @@ EXPORT_SYMBOL(skb_tx_error);
  *	Functions identically to kfree_skb, but kfree_skb assumes that the frame
  *	is being dropped after a failure and notes that
  */
-void consume_skb(struct sk_buff *skb)
+__IMEM void consume_skb(struct sk_buff *skb)
 {
 	if (unlikely(!skb))
 		return;
@@ -725,7 +802,6 @@ static void __copy_skb_header(struct sk_buff *new, const struct sk_buff *old)
 	 * It is not yet because we do not want to have a 16 bit hole
 	 */
 	new->queue_mapping = old->queue_mapping;
-
 	memcpy(&new->headers_start, &old->headers_start,
 	       offsetof(struct sk_buff, headers_end) -
 	       offsetof(struct sk_buff, headers_start));
@@ -757,6 +833,34 @@ static void __copy_skb_header(struct sk_buff *new, const struct sk_buff *old)
 #endif
 #endif
 
+/*
+ * brief	already copied in __nf_copy->ecnt_nf_copy
+ * By	wangwenhao, 2Nov22
+ */
+#if 0
+/* add for LAN/WAN binding 20190926 --HSW */
+/* Added By Shangguan Weijie, 2017-07-28. */
+/* for LAN/WAN binding */
+#if defined(CONFIG_TP_IMAGE) && defined(INCLUDE_TP_MARK)
+	new->mark2 = old->mark2;
+#endif /* defined(CONFIG_TP_IMAGE) && defined(INCLUDE_TP_MARK) */
+/* End Add. */
+#endif
+
+#if defined(CONFIG_CPU_TC3162) || defined(CONFIG_MIPS_TC3262)
+	if (new->skb_recycling_ind == SKBMGR_INDICATION) {
+		atomic_dec(&skbmgr_alloc_no);
+	}else if(new->skb_recycling_ind == SKBMGR_4K_INDICATION){
+		atomic_dec(&skbmgr_4k_alloc_no);
+	}
+#if defined(TCSUPPORT_LRO_ENABLE) 
+	else if(new->skb_recycling_ind == SKBMGR_LRO_INDICATION){
+		atomic_dec(&skbmgr_lro_alloc_no);
+	}
+#endif
+	new->skb_recycling_ind = 0;
+	new->skb_recycling_callback = NULL;
+#endif
 }
 
 /*
@@ -778,6 +882,11 @@ static struct sk_buff *__skb_clone(struct sk_buff *n, struct sk_buff *skb)
 	n->cloned = 1;
 	n->nohdr = 0;
 	n->destructor = NULL;
+#if defined(CONFIG_CPU_TC3162) || defined(CONFIG_MIPS_TC3262)
+	n->skb_recycling_callback = NULL;
+	n->skb_recycling_ind = 0;
+	skb->skb_recycling_callback = NULL;
+#endif
 	C(tail);
 	C(end);
 	C(head);
@@ -931,7 +1040,8 @@ static void skb_headers_offset_update(struct sk_buff *skb, int off)
 }
 
 static void copy_skb_header(struct sk_buff *new, const struct sk_buff *old)
-{
+{	
+
 	__copy_skb_header(new, old);
 
 	skb_shinfo(new)->gso_size = skb_shinfo(old)->gso_size;
@@ -1078,6 +1188,11 @@ int pskb_expand_head(struct sk_buff *skb, int nhead, int ntail,
 
 	if (skb_shared(skb))
 		BUG();
+#if defined(CONFIG_CPU_TC3162) || defined(CONFIG_MIPS_TC3262)
+		/*the skb num reach the max number,go to nodata*/
+		if(atomic_read(&g_used_skb_num) > g_max_skb_num)
+			goto nodata;
+#endif
 
 	size = SKB_DATA_ALIGN(size);
 
@@ -1087,6 +1202,10 @@ int pskb_expand_head(struct sk_buff *skb, int nhead, int ntail,
 			       gfp_mask, NUMA_NO_NODE, NULL);
 	if (!data)
 		goto nodata;
+#if defined(CONFIG_CPU_TC3162) || defined(CONFIG_MIPS_TC3262)
+		/*add skb num*/
+		atomic_inc(&g_used_skb_num);
+#endif
 	size = SKB_WITH_OVERHEAD(ksize(data));
 
 	/* Copy only real data... and, alas, header. This should be
@@ -1112,6 +1231,9 @@ int pskb_expand_head(struct sk_buff *skb, int nhead, int ntail,
 
 		if (skb_has_frag_list(skb))
 			skb_clone_fraglist(skb);
+#if defined(CONFIG_CPU_TC3162) || defined(CONFIG_MIPS_TC3262)
+	skb->skb_recycling_callback = NULL;
+#endif
 
 		skb_release_data(skb);
 	} else {
@@ -1182,7 +1304,7 @@ EXPORT_SYMBOL(skb_realloc_headroom);
  *	You must pass %GFP_ATOMIC as the allocation priority if this function
  *	is called from an interrupt.
  */
-struct sk_buff *skb_copy_expand(const struct sk_buff *skb,
+__IMEM struct sk_buff *skb_copy_expand(const struct sk_buff *skb,
 				int newheadroom, int newtailroom,
 				gfp_t gfp_mask)
 {
@@ -1301,7 +1423,7 @@ EXPORT_SYMBOL_GPL(pskb_put);
  *	exceed the total buffer size the kernel will panic. A pointer to the
  *	first byte of the extra data is returned.
  */
-unsigned char *skb_put(struct sk_buff *skb, unsigned int len)
+__IMEM unsigned char *skb_put(struct sk_buff *skb, unsigned int len)
 {
 	unsigned char *tmp = skb_tail_pointer(skb);
 	SKB_LINEAR_ASSERT(skb);
@@ -1322,7 +1444,7 @@ EXPORT_SYMBOL(skb_put);
  *	start. If this would exceed the total buffer headroom the kernel will
  *	panic. A pointer to the first byte of the extra data is returned.
  */
-unsigned char *skb_push(struct sk_buff *skb, unsigned int len)
+__IMEM unsigned char *skb_push(struct sk_buff *skb, unsigned int len)
 {
 	skb->data -= len;
 	skb->len  += len;
@@ -1342,7 +1464,7 @@ EXPORT_SYMBOL(skb_push);
  *	is returned. Once the data has been pulled future pushes will overwrite
  *	the old data.
  */
-unsigned char *skb_pull(struct sk_buff *skb, unsigned int len)
+__IMEM unsigned char *skb_pull(struct sk_buff *skb, unsigned int len)
 {
 	return skb_pull_inline(skb, len);
 }
@@ -1357,7 +1479,7 @@ EXPORT_SYMBOL(skb_pull);
  *	the buffer is already under the length specified it is not modified.
  *	The skb must be linear.
  */
-void skb_trim(struct sk_buff *skb, unsigned int len)
+__IMEM void skb_trim(struct sk_buff *skb, unsigned int len)
 {
 	if (skb->len > len)
 		__skb_trim(skb, len);
@@ -1367,7 +1489,7 @@ EXPORT_SYMBOL(skb_trim);
 /* Trims skb to length len. It can change skb pointers.
  */
 
-int ___pskb_trim(struct sk_buff *skb, unsigned int len)
+__IMEM int ___pskb_trim(struct sk_buff *skb, unsigned int len)
 {
 	struct sk_buff **fragp;
 	struct sk_buff *frag;
@@ -1475,7 +1597,7 @@ EXPORT_SYMBOL(___pskb_trim);
  *
  * It is pretty complicated. Luckily, it is called only in exceptional cases.
  */
-unsigned char *__pskb_pull_tail(struct sk_buff *skb, int delta)
+__IMEM unsigned char *__pskb_pull_tail(struct sk_buff *skb, int delta)
 {
 	/* If skb has not enough free space at tail, get new one
 	 * plus 128 bytes for future expansions. If we have enough
@@ -1607,7 +1729,7 @@ EXPORT_SYMBOL(__pskb_pull_tail);
  *		check arch/{*}/net/{*}.S files,
  *		since it is called from BPF assembly code.
  */
-int skb_copy_bits(const struct sk_buff *skb, int offset, void *to, int len)
+__IMEM int skb_copy_bits(const struct sk_buff *skb, int offset, void *to, int len)
 {
 	int start = skb_headlen(skb);
 	struct sk_buff *frag_iter;
@@ -2265,7 +2387,7 @@ EXPORT_SYMBOL(skb_copy_and_csum_dev);
  *	returned or %NULL if the list is empty.
  */
 
-struct sk_buff *skb_dequeue(struct sk_buff_head *list)
+__IMEM struct sk_buff *skb_dequeue(struct sk_buff_head *list)
 {
 	unsigned long flags;
 	struct sk_buff *result;
@@ -2324,7 +2446,7 @@ EXPORT_SYMBOL(skb_queue_purge);
  *
  *	A buffer cannot be placed on two lists at the same time.
  */
-void skb_queue_head(struct sk_buff_head *list, struct sk_buff *newsk)
+__IMEM void skb_queue_head(struct sk_buff_head *list, struct sk_buff *newsk)
 {
 	unsigned long flags;
 
@@ -3270,6 +3392,10 @@ done:
 
 void __init skb_init(void)
 {
+#if defined(CONFIG_CPU_TC3162) || defined(CONFIG_MIPS_TC3262)
+		ecnt_skb_init();
+#endif
+
 	skbuff_head_cache = kmem_cache_create("skbuff_head_cache",
 					      sizeof(struct sk_buff),
 					      0,
@@ -4064,6 +4190,10 @@ void skb_scrub_packet(struct sk_buff *skb, bool xnet)
 		return;
 
 	skb_orphan(skb);
+
+	if(ECNT_RETURN == ecnt_skb_scrub_packet_inline_hook(skb)){
+		return;
+	}
 	skb->mark = 0;
 }
 EXPORT_SYMBOL_GPL(skb_scrub_packet);
@@ -4100,7 +4230,7 @@ unsigned int skb_gso_transport_seglen(const struct sk_buff *skb)
 }
 EXPORT_SYMBOL_GPL(skb_gso_transport_seglen);
 
-static struct sk_buff *skb_reorder_vlan_header(struct sk_buff *skb)
+struct sk_buff *skb_reorder_vlan_header(struct sk_buff *skb)
 {
 	if (skb_cow(skb, skb_headroom(skb)) < 0) {
 		kfree_skb(skb);
@@ -4131,6 +4261,16 @@ struct sk_buff *skb_vlan_untag(struct sk_buff *skb)
 
 	vhdr = (struct vlan_hdr *)skb->data;
 	vlan_tci = ntohs(vhdr->h_vlan_TCI);
+
+	if (vlan_tci & VLAN_PRIO_MASK)
+	{
+		u16 prio = 0;
+#define QOS_8021p_MARK                 0x0F00  /* 8~11 bits used for 802.1p */
+
+		prio = (vlan_tci >> VLAN_PRIO_SHIFT) & 0x7;
+		skb->mark |= ((prio << 8) & QOS_8021p_MARK);
+	}
+	ecnt_vlan_untag_inline_hook(skb,vlan_tci);
 	__vlan_hwaccel_put_tag(skb, skb->protocol, vlan_tci);
 
 	skb_pull_rcsum(skb, VLAN_HLEN);

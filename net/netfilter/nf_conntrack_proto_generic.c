@@ -11,6 +11,7 @@
 #include <linux/timer.h>
 #include <linux/netfilter.h>
 #include <net/netfilter/nf_conntrack_l4proto.h>
+#include "ecnt_netfilter.h"
 
 static unsigned int nf_ct_generic_timeout __read_mostly = 600*HZ;
 
@@ -83,6 +84,10 @@ static int generic_packet(struct nf_conn *ct,
 			  unsigned int hooknum,
 			  unsigned int *timeout)
 {
+	if ( ECNT_CONTINUE != ecnt_generic_packet_inline_hook(ct, skb, dataoff
+		, ctinfo, pf, hooknum, timeout) )
+		return NF_ACCEPT;
+
 	nf_ct_refresh_acct(ct, ctinfo, skb, *timeout);
 	return NF_ACCEPT;
 }

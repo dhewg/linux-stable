@@ -34,6 +34,9 @@
 #include <net/rtnetlink.h>
 #include <net/xfrm.h>
 #include <linux/netpoll.h>
+#ifdef CONFIG_TP_IMAGE
+#include "../../net/bridge/br_private.h"
+#endif
 
 #define MACVLAN_HASH_BITS	8
 #define MACVLAN_HASH_SIZE	(1<<MACVLAN_HASH_BITS)
@@ -63,6 +66,11 @@ struct macvlan_skb_cb {
 };
 
 #define MACVLAN_SKB_CB(__skb) ((struct macvlan_skb_cb *)&((__skb)->cb[0]))
+
+#if defined(CONFIG_TP_IMAGE) && defined(INCLUDE_TTNET)
+void (*fe_macvlan_wanItfToAcntDown_hook)(struct sk_buff *skb) = NULL;
+EXPORT_SYMBOL(fe_macvlan_wanItfToAcntDown_hook);
+#endif /* INCLUDE_TTNET */
 
 static void macvlan_port_destroy(struct net_device *dev);
 
@@ -440,7 +448,76 @@ static rx_handler_result_t macvlan_handle_frame(struct sk_buff **pskb)
 					      struct macvlan_dev, list);
 	else
 		vlan = macvlan_hash_lookup(port, eth->h_dest);
+#ifdef CONFIG_TP_IMAGE
+	if (!vlan) {
+		const struct macvlan_dev *vlanTmp;
+		struct net_device *devTmp;
+		struct net_bridge_fdb_entry *fdb;
+		unsigned long newest = 0;
+		const struct macvlan_dev *vlanPriv = NULL;
+		rx_handler_func_t *rx_handler;
+
+/*
+ * brief	for BR_HAIRPIN_MODE router. see should_deliver(). 
+ *			if throughput redueced, try to remove this.
+ * By	wangwenhao, 4Mar21
+ */
+#if 0	/* open when needed */
+		list_for_each_entry_rcu(vlanTmp, &port->vlans, list) {
+			devTmp = vlanTmp->dev;
+			rx_handler = rcu_dereference(devTmp->rx_handler);
+			if (rx_handler == br_handle_frame) {
+				struct net_bridge_port *p = br_port_get_rcu(devTmp);
+				fdb = __br_fdb_get(p->br, eth->h_source, 0);
+				if (fdb && fdb->dst && fdb->dst->dev && fdb->dst->dev != devTmp)
+					goto next_step;
+			}
+		}
+#endif
+
+		list_for_each_entry_rcu(vlanTmp, &port->vlans, list) {
+			devTmp = vlanTmp->dev;
+			rx_handler = rcu_dereference(devTmp->rx_handler);
+			if (rx_handler == br_handle_frame) {
+				struct net_bridge_port *p = br_port_get_rcu(devTmp);
+				if ((fdb = __br_fdb_get(p->br, eth->h_dest, 0)) != NULL) {
+/*
+ * brief	do not do broadcast?
+ * By	wangwenhao, 18Mar21
+ */
+#if 0
+					if (vlanPriv) {
+						struct sk_buff *skb2 = skb_clone(skb, GFP_ATOMIC);
+						if (skb2) {
+							skb2->dev = vlanPriv->dev;
+							netif_rx(skb2);
+						}
+					}
+					vlanPriv = vlanTmp;
+#else
+					if (fdb->is_local) {
+						/* goto first interface: xxx_0 */
+						vlanPriv = vlanTmp;
+						break;
+					}
+					if (fdb->updated > newest) {
+						vlanPriv = vlanTmp;
+						newest = fdb->updated;
+					}
+#endif
+				}
+			}
+		}
+		if (vlanPriv) {
+			vlan = vlanPriv;
+		}
+	}
+next_step:
+
+	if (!vlan || vlan->mode == MACVLAN_MODE_SOURCE)
+#else
 	if (vlan == NULL)
+#endif
 		return RX_HANDLER_PASS;
 
 	dev = vlan->dev;
@@ -462,6 +539,14 @@ static rx_handler_result_t macvlan_handle_frame(struct sk_buff **pskb)
 	ret = NET_RX_SUCCESS;
 	handle_res = RX_HANDLER_ANOTHER;
 out:
+	
+	#if defined(CONFIG_TP_IMAGE) && defined(INCLUDE_TTNET)
+	if (fe_macvlan_wanItfToAcntDown_hook)
+	{
+		fe_macvlan_wanItfToAcntDown_hook(skb);
+	}
+	#endif /* INCLUDE_TTNET */
+	
 	macvlan_count_rx(vlan, len, ret == NET_RX_SUCCESS, false);
 	return handle_res;
 }
@@ -1513,7 +1598,7 @@ static int macvlan_device_event(struct notifier_block *unused,
 						struct macvlan_dev,
 						list);
 
-		if (macvlan_sync_address(vlan->dev, dev->dev_addr))
+		if (vlan && macvlan_sync_address(vlan->dev, dev->dev_addr))
 			return NOTIFY_BAD;
 
 		break;

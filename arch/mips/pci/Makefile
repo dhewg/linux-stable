@@ -18,6 +18,18 @@ obj-$(CONFIG_PCI_TX4927)	+= ops-tx4927.o
 obj-$(CONFIG_BCM47XX)		+= pci-bcm47xx.o
 obj-$(CONFIG_BCM63XX)		+= pci-bcm63xx.o fixup-bcm63xx.o \
 					ops-bcm63xx.o
+
+obj-$(CONFIG_MIPS_TC3162)	+= ops-tc3162.o pci-tc3162.o fixup-tc3162.o
+ifdef CONFIG_MIPS_TC3262 
+EXTRA_CFLAGS += -DPCIE_PCI_COEXIT
+endif
+obj-$(CONFIG_MIPS_TC3262)	+= ops-tc3162u.o pci-tc3162u.o fixup-tc3162u.o pcie-phy.o
+obj-$(CONFIG_MIPS_TC3262)       += ops-tc3162.o pci-tc3162.o fixup-tc3162.o  pci-7512api.o
+ifdef CONFIG_MIPS_TC3162U
+EXTRA_CFLAGS += -DPCIE_PCI_COEXIT
+endif
+obj-$(CONFIG_MIPS_TC3162U)	+= ops-tc3162u.o pci-tc3162u.o fixup-tc3162u.o pcie-phy.o
+obj-$(CONFIG_MIPS_TC3162U)	+= ops-tc3162.o pci-tc3162.o fixup-tc3162.o
 obj-$(CONFIG_MIPS_ALCHEMY)	+= pci-alchemy.o
 obj-$(CONFIG_SOC_AR71XX)	+= pci-ar71xx.o
 obj-$(CONFIG_PCI_AR724X)	+= pci-ar724x.o

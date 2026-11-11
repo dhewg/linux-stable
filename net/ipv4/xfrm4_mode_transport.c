@@ -5,6 +5,8 @@
  */
 
 #include <linux/init.h>
+#include <linux/crypto.h>
+#include <ecnt_hook/ecnt_hook_crypto.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/skbuff.h>
@@ -22,8 +24,11 @@ static int xfrm4_transport_output(struct xfrm_state *x, struct sk_buff *skb)
 {
 	struct iphdr *iph = ip_hdr(skb);
 	int ihl = iph->ihl * 4;
+    int header_len = x->props.header_len;
+    
+    CRYPTO_API_GET_XFRM_HEADER_LEN(ECNT_CRYPTO, x, &header_len);
+    skb_set_network_header(skb, -header_len);
 
-	skb_set_network_header(skb, -x->props.header_len);
 	skb->mac_header = skb->network_header +
 			  offsetof(struct iphdr, protocol);
 	skb->transport_header = skb->network_header + ihl;

@@ -2450,7 +2450,7 @@ static inline void __update_group_entity_contrib(struct sched_entity *se)
 
 	u64 contrib;
 
-	contrib = cfs_rq->tg_load_contrib * tg->shares;
+	contrib = (u64)cfs_rq->tg_load_contrib * tg->shares;
 	se->avg.load_avg_contrib = div_u64(contrib,
 				     atomic_long_read(&tg->load_avg) + 1);
 

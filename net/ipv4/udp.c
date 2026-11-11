@@ -114,6 +114,23 @@
 #include <trace/events/skb.h>
 #include <net/busy_poll.h>
 #include "udp_impl.h"
+#include "ecnt_net_ipv4.h"
+
+#include <ecnt_hook/ecnt_hook_net.h>
+
+/*
+ * brief: Added by LI CHENGLONG, 2012 Feb 27 02:45:14 PM
+ *		  port defined by UPNP protocol. 
+ */
+#define TP_UPNP_PORT 1900
+
+#if defined(CONFIG_IP_MULTIPLE_TABLES) && !defined(INCLUDE_DSP_SOCKET_OPEN)
+int (*get_voice_rule_mark_hook)(__be32 addr, __be16 port) = NULL;
+EXPORT_SYMBOL(get_voice_rule_mark_hook);
+
+int (*is_SIP_Packet)(__be32 addr, __be16 port) = NULL;
+EXPORT_SYMBOL(is_SIP_Packet);
+#endif /* defined(CONFIG_IP_MULTIPLE_TABLES) && !defined(INCLUDE_DSP_SOCKET_OPEN) */
 
 struct udp_table udp_table __read_mostly;
 EXPORT_SYMBOL(udp_table);
@@ -824,6 +841,7 @@ static int udp_send_skb(struct sk_buff *skb, struct flowi4 *fl4)
 		uh->check = CSUM_MANGLED_0;
 
 send:
+	ecnt_udp_send_skb_inline_hook(inet, sk, skb);
 	err = ip_send_skb(sock_net(sk), skb);
 	if (err) {
 		if (err == -ENOBUFS && !inet->recverr) {
@@ -882,6 +900,12 @@ int udp_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 	struct sk_buff *skb;
 	struct ip_options_data opt_copy;
 
+#if defined(CONFIG_IP_MULTIPLE_TABLES) && !defined(INCLUDE_DSP_SOCKET_OPEN)
+	int rulemark;
+	typeof(get_voice_rule_mark_hook) get_rule_mark;
+	typeof(is_SIP_Packet) check_sip_packet;
+#endif /* defined(CONFIG_IP_MULTIPLE_TABLES) && !defined(INCLUDE_DSP_SOCKET_OPEN) */
+
 	if (len > 0xFFFF)
 		return -EMSGSIZE;
 
@@ -934,14 +958,28 @@ int udp_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 		if (dport == 0)
 			return -EINVAL;
 	} else {
-		if (sk->sk_state != TCP_ESTABLISHED)
-			return -EDESTADDRREQ;
-		daddr = inet->inet_daddr;
-		dport = inet->inet_dport;
-		/* Open fast path for connected socket.
-		   Route will not be used, if at least one option is set.
-		 */
-		connected = 1;
+#if defined(CONFIG_IP_MULTIPLE_TABLES) && !defined(INCLUDE_DSP_SOCKET_OPEN)
+		get_rule_mark = rcu_dereference(get_voice_rule_mark_hook);
+		if ( get_rule_mark &&
+			 (rulemark = get_rule_mark(saddr, inet->inet_sport)) != 0 )
+		{
+			printk(KERN_DEBUG "do not set connected status!\n");
+			daddr = inet->inet_daddr;
+			dport = inet->inet_dport;
+		}
+		else
+#endif
+		{
+			if (sk->sk_state != TCP_ESTABLISHED)
+				return -EDESTADDRREQ;
+			daddr = inet->inet_daddr;
+			dport = inet->inet_dport;
+			/* Open fast path for connected socket.
+			   Route will not be used, if at least one option is set.
+			 */
+			connected = 1;
+		}
+		
 	}
 	ipc.addr = inet->inet_saddr;
 
@@ -1008,6 +1046,22 @@ int udp_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 				   RT_SCOPE_UNIVERSE, sk->sk_protocol,
 				   inet_sk_flowi_flags(sk),
 				   faddr, saddr, dport, inet->inet_sport);
+
+#if defined(CONFIG_IP_MULTIPLE_TABLES) && !defined(INCLUDE_DSP_SOCKET_OPEN)
+		get_rule_mark = rcu_dereference(get_voice_rule_mark_hook);
+		if ( get_rule_mark &&
+			 (rulemark = get_rule_mark(saddr, inet->inet_sport)) != 0 )
+		{
+			flowi4_to_flowi(fl4)->flowi_mark = rulemark;
+			sk->sk_mark = 0x61; /* mark RTP as VOIP packet */
+		}
+
+		check_sip_packet = rcu_dereference(is_SIP_Packet);
+		if (check_sip_packet && check_sip_packet(saddr, inet->inet_sport) >= 0)
+		{
+			sk->sk_mark = 0x61; /* mark SIP as VOIP packet */
+		}
+#endif /* defined(CONFIG_IP_MULTIPLE_TABLES) && !defined(INCLUDE_DSP_SOCKET_OPEN) */
 
 		security_sk_classify_flow(sk, flowi4_to_flowi(fl4));
 		rt = ip_route_output_flow(net, fl4, sk);
@@ -1262,6 +1316,7 @@ try_again:
 				  &peeked, &off, &err);
 	if (!skb)
 		goto out;
+	ecnt_udp_recvmsg_inline_hook(sk, skb);
 
 	ulen = skb->len - sizeof(struct udphdr);
 	copied = len;
@@ -1747,6 +1802,11 @@ int __udp4_lib_rcv(struct sk_buff *skb, struct udp_table *udptable,
 	saddr = ip_hdr(skb)->saddr;
 	daddr = ip_hdr(skb)->daddr;
 
+    if (ECNT_RETURN_DROP == ecnt_udp_v4_rcv_inline_hook(skb, uh))
+    {
+        goto drop;
+    }
+
 	if (ulen > skb->len)
 		goto short_packet;
 
@@ -1993,8 +2053,14 @@ void udp_v4_early_demux(struct sk_buff *skb)
 
 int udp_rcv(struct sk_buff *skb)
 {
+	struct net_data_s net_data;
+	
+	net_data.pskb = &skb;
+	ECNT_UDP_RCV_HOOK(ECNT_NET_UDP_RCV,&net_data);
+	
 	return __udp4_lib_rcv(skb, &udp_table, IPPROTO_UDP);
 }
+EXPORT_SYMBOL(udp_rcv);
 
 void udp_destroy_sock(struct sock *sk)
 {

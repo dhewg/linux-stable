@@ -186,6 +186,9 @@ void __init proc_root_init(void)
 #endif
 	proc_tty_init();
 	proc_mkdir("bus", NULL);
+#ifdef CONFIG_MIPS_TC3262
+	proc_mkdir("tc3162", NULL);
+#endif
 	proc_sys_init();
 }
 

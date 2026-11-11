@@ -12,6 +12,7 @@
 #include <linux/netfilter_ipv6/ip6_tables.h>
 #include <linux/slab.h>
 #include <net/ipv6.h>
+#include "ecnt_netfilter_ipv6.h"
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Netfilter Core Team <coreteam@netfilter.org>");
@@ -47,6 +48,9 @@ ip6t_mangle_out(struct sk_buff *skb, const struct net_device *out)
 		return NF_ACCEPT;
 	}
 #endif
+
+	if ( ECNT_RETURN_DROP == ecnt_ip6t_mangle_out_inline_hook(skb, out) )
+		return NF_DROP;
 
 	/* save source/dest address, mark, hoplimit, flowlabel, priority,  */
 	memcpy(&saddr, &ipv6_hdr(skb)->saddr, sizeof(saddr));

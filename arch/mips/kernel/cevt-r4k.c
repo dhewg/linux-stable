@@ -15,6 +15,7 @@
 #include <asm/time.h>
 #include <asm/cevt-r4k.h>
 #include <asm/gic.h>
+#include <asm/tc3162/tc3162.h>
 
 static int mips_next_event(unsigned long delta,
 			   struct clock_event_device *evt)
@@ -52,6 +53,8 @@ irqreturn_t c0_compare_interrupt(int irq, void *dev_id)
 	 */
 	if (handle_perf_irq(r2))
 		goto out;
+
+	ecnt_mips_time_ack(cpu);
 
 	/*
 	 * The same applies to performance counter interrupts.	But with the
@@ -164,9 +167,12 @@ int r4k_clockevent_init(void)
 	if (!cpu_has_counter || !mips_hpt_frequency)
 		return -ENXIO;
 
+#ifndef TCSUPPORT_MIPS_1004K 
+/* don't need to check c0_compare_int_usable because we use external CPU timers.
+ * Note: system will hang if checking c0_compare_int_usable */
 	if (!c0_compare_int_usable())
 		return -ENXIO;
-
+#endif
 	/*
 	 * With vectored interrupts things are getting platform specific.
 	 * get_c0_compare_int is a hook to allow a platform to return the
@@ -204,6 +210,7 @@ int r4k_clockevent_init(void)
 	cp0_timer_irq_installed = 1;
 
 	setup_irq(irq, &c0_compare_irqaction);
+	printk("r4k_clockevent_init: setup_irq OK, irq is [%d]\r\n", irq);
 
 	return 0;
 }

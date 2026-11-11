@@ -7,7 +7,7 @@
  * (C) Copyright 2001 Brad Hards (bhards@bigpond.net.au)
  *
  */
-
+#define DEBUG
 #include <linux/kernel.h>
 #include <linux/errno.h>
 #include <linux/module.h>
@@ -32,6 +32,7 @@
 
 #include "hub.h"
 #include "otg_whitelist.h"
+#include "ecnt_drivers_usb_core.h"
 
 #define USB_VENDOR_GENESYS_LOGIC		0x05e3
 #define HUB_QUIRK_CHECK_PORT_AUTOSUSPEND	0x01
@@ -2126,6 +2127,7 @@ void usb_disconnect(struct usb_device **pdev)
 	struct usb_hub *hub = NULL;
 	int port1 = 1;
 
+	ecnt_usb_disconnect_inline_hook(udev);
 	/* mark the device as inactive, so any further urb submissions for
 	 * this device (and any of its children) will fail immediately.
 	 * this quiesces everything except pending urbs.
@@ -4611,6 +4613,7 @@ static void hub_port_connect(struct usb_hub *hub, int port1, u16 portstatus,
 		if (hcd->usb_phy && !hdev->parent)
 			usb_phy_notify_disconnect(hcd->usb_phy, udev->speed);
 		usb_disconnect(&port_dev->child);
+		power_saving_mode(0);
 	}
 
 	/* We can forget about a "removed" device when there's a physical
@@ -4650,6 +4653,7 @@ static void hub_port_connect(struct usb_hub *hub, int port1, u16 portstatus,
 			goto done;
 		return;
 	}
+	power_saving_mode(1);
 	if (hub_is_superspeed(hub->hdev))
 		unit_load = 150;
 	else
@@ -4776,6 +4780,8 @@ static void hub_port_connect(struct usb_hub *hub, int port1, u16 portstatus,
 		status = hub_power_remaining(hub);
 		if (status)
 			dev_dbg(hub->intfdev, "%dmA power budget left\n", status);
+
+		ecnt_hub_port_connect_inline_hook(udev);
 
 		return;
 

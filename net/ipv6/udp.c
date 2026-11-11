@@ -52,6 +52,9 @@
 #include <linux/seq_file.h>
 #include <trace/events/skb.h>
 #include "udp_impl.h"
+#include "ecnt_net_ipv6.h"
+
+#include <ecnt_hook/ecnt_hook_net.h>
 
 static unsigned int udp6_ehashfn(struct net *net,
 				  const struct in6_addr *laddr,
@@ -480,6 +483,8 @@ try_again:
 	if (np->rxopt.all)
 		ip6_datagram_recv_common_ctl(sk, msg, skb);
 
+	ecnt_udpv6_recvmsg_inline_hook(msg, skb, inet, is_udp4);
+
 	if (is_udp4) {
 		if (inet->cmsg_flags)
 			ip_cmsg_recv(msg, skb);
@@ -868,6 +873,9 @@ int __udp6_lib_rcv(struct sk_buff *skb, struct udp_table *udptable,
 	if (udp6_csum_init(skb, uh, proto))
 		goto csum_error;
 
+	if(ecnt_udp6_lib_rcv_inline_hook(skb, uh, proto) == ECNT_RETURN_DROP)
+		goto discard;
+
 	/*
 	 *	Multicast receive code
 	 */
@@ -944,8 +952,14 @@ discard:
 
 static __inline__ int udpv6_rcv(struct sk_buff *skb)
 {
+	struct net_data_s net_data;
+	
+	net_data.pskb = &skb;
+	ECNT_UDPV6_RCV_HOOK(ECNT_NET_UDPV6_RCV,&net_data);
+	
 	return __udp6_lib_rcv(skb, &udp_table, IPPROTO_UDP);
 }
+EXPORT_SYMBOL(udpv6_rcv);
 
 /*
  * Throw away all pending data and cancel the corking. Socket is locked.
@@ -1056,6 +1070,7 @@ static int udp_v6_push_pending_frames(struct sock *sk)
 		uh->check = CSUM_MANGLED_0;
 
 send:
+	ecnt_udp_v6_push_pending_frames_inline_hook(inet, sk, skb);
 	err = ip6_push_pending_frames(sk);
 	if (err) {
 		if (err == -ENOBUFS && !inet6_sk(sk)->recverr) {
@@ -1205,6 +1220,8 @@ do_udp_sendmsg:
 		fl6.flowlabel = np->flow_label;
 		connected = 1;
 	}
+
+	ecnt_udpv6_sendmsg_inline_hook(&fl6, sk);
 
 	if (!fl6.flowi6_oif)
 		fl6.flowi6_oif = sk->sk_bound_dev_if;

@@ -225,6 +225,14 @@ config LZ4HC_COMPRESS
 config LZ4_DECOMPRESS
 	tristate
 
+config LZMA_COMPRESS
+	bool
+	default y
+
+config LZMA_DECOMPRESS
+	bool
+	default y
+
 source "lib/xz/Kconfig"
 
 #

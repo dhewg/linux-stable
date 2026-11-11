@@ -27,6 +27,7 @@
 #include <linux/kernel.h>
 
 #include "xfrm_hash.h"
+#include <ecnt_hook/ecnt_hook_crypto.h>
 
 /* Each xfrm_state may be linked to two tables:
 
@@ -533,6 +534,8 @@ int __xfrm_state_delete(struct xfrm_state *x)
 		 */
 		xfrm_state_put(x);
 		err = 0;
+
+        CRYPTO_API_FREE_ADAPTER(ECNT_CRYPTO, x->id.spi);
 	}
 
 	return err;

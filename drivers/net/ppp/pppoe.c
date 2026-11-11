@@ -455,6 +455,24 @@ out:
 	return NET_RX_DROP;
 }
 
+#ifdef CONFIG_TP_IMAGE
+static void pppoe_unbind_sock_work(struct work_struct *work)
+{
+	struct pppox_sock *po = container_of(work, struct pppox_sock,
+					     proto.pppoe.padt_work);
+	struct sock *sk = sk_pppox(po);
+
+	lock_sock(sk);
+	if (po->pppoe_dev) {
+		dev_put(po->pppoe_dev);
+		po->pppoe_dev = NULL;
+	}
+	pppox_unbind_sock(sk);
+	release_sock(sk);
+	sock_put(sk);
+}
+#endif /* CONFIG_TP_IMAGE */
+
 /************************************************************************
  *
  * Receive a PPPoE Discovery frame.
@@ -500,7 +518,14 @@ static int pppoe_disc_rcv(struct sk_buff *skb, struct net_device *dev,
 		}
 
 		bh_unlock_sock(sk);
+
+#ifdef CONFIG_TP_IMAGE
+		if (!schedule_work(&po->proto.pppoe.padt_work)) {
+			sock_put(sk);
+		}
+#else
 		sock_put(sk);
+#endif /* CONFIG_TP_IMAGE */
 	}
 
 abort:
@@ -549,6 +574,11 @@ static int pppoe_create(struct net *net, struct socket *sock)
 	sk->sk_family		= PF_PPPOX;
 	sk->sk_protocol		= PX_PROTO_OE;
 
+#ifdef CONFIG_TP_IMAGE
+	INIT_WORK(&pppox_sk(sk)->proto.pppoe.padt_work,
+		  pppoe_unbind_sock_work);
+#endif /* CONFIG_TP_IMAGE */
+
 	return 0;
 }
 
@@ -570,8 +600,8 @@ static int pppoe_release(struct socket *sock)
 
 	po = pppox_sk(sk);
 
-	if (sk->sk_state & (PPPOX_CONNECTED | PPPOX_BOUND | PPPOX_ZOMBIE)) {
-		dev_put(po->pppoe_dev);
+	if(po->pppoe_dev){
+		dev_put(po->pppoe_dev);			
 		po->pppoe_dev = NULL;
 	}
 
@@ -642,8 +672,23 @@ static int pppoe_connect(struct socket *sock, struct sockaddr *uservaddr,
 			po->pppoe_dev = NULL;
 		}
 
+/*
+ * brief	do not memset the work_struct po->proto.pppoe_opt.padt_work;
+ *			please memset data manually if any new struct member added
+ * By	wangwenhao, 21Dec22
+ */
+#ifdef CONFIG_TP_IMAGE
+		po->pppoe_ifindex = 0;
+		memset(&po->pppoe_pa, 0, sizeof(po->pppoe_pa));
+		memset(&po->pppoe_relay, 0, sizeof(po->pppoe_relay));
+		memset(&po->chan, 0, sizeof(po->chan));
+		po->next = NULL;
+		po->num = 0;
+#else /* CONFIG_TP_IMAGE */
 		memset(sk_pppox(po) + 1, 0,
 		       sizeof(struct pppox_sock) - sizeof(struct sock));
+#endif /* CONFIG_TP_IMAGE */
+
 		sk->sk_state = PPPOX_NONE;
 	}
 

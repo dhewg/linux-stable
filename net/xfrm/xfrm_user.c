@@ -755,7 +755,8 @@ static int copy_to_user_auth(struct xfrm_algo_auth *auth, struct sk_buff *skb)
 		return -EMSGSIZE;
 
 	algo = nla_data(nla);
-	strncpy(algo->alg_name, auth->alg_name, sizeof(algo->alg_name));
+	strncpy(algo->alg_name, auth->alg_name, sizeof(algo->alg_name)-1);
+	algo->alg_name[sizeof(algo->alg_name)-1] = '\0';
 	memcpy(algo->alg_key, auth->alg_key, (auth->alg_key_len + 7) / 8);
 	algo->alg_key_len = auth->alg_key_len;
 

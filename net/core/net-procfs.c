@@ -74,6 +74,7 @@ static void dev_seq_stop(struct seq_file *seq, void *v)
 	rcu_read_unlock();
 }
 
+#ifdef CONFIG_TP_IMAGE
 static void dev_seq_printf_stats(struct seq_file *seq, struct net_device *dev)
 {
 	struct rtnl_link_stats64 temp;
@@ -97,6 +98,94 @@ static void dev_seq_printf_stats(struct seq_file *seq, struct net_device *dev)
 		    stats->tx_heartbeat_errors,
 		   stats->tx_compressed);
 }
+
+static void devextstats_seq_printf_stats(struct seq_file *seq, struct net_device *dev)
+{
+	struct rtnl_link_stats64 temp;
+	const struct rtnl_link_stats64 *stats = dev_get_stats(dev, &temp);
+
+	unsigned long long rx_unicast_packets=0;
+	unsigned long long tx_unicast_packets=0;  /* Calculated unicast packets */
+
+	#if defined(INCLUDE_TTNET)
+	/* can't get broadcast from dev_get_stats, so get broadcast from dev->stats.
+	 * dev->stats is collected in fe_resource_manage.c:fe_mark_wan_itf_idx */
+	if (0 == temp.rx_broadcast_packets && 0 == temp.tx_broadcast_packets && 0 == temp.tx_multicast_packets)
+	{
+		temp.rx_broadcast_packets = dev->stats.rx_broadcast_packets;
+		temp.tx_broadcast_packets = dev->stats.tx_broadcast_packets;
+		temp.tx_multicast_packets = dev->stats.tx_multicast_packets;
+	}
+	#endif /* INCLUDE_TTNET */
+
+	/* Calculate unicast packet counts as a result of total packets minus broadcast and multicast.
+	Normalize to zero in case an error sum of multicast and broadcast packets is reported */
+	if ((stats->multicast + stats->rx_broadcast_packets) < stats->rx_packets)
+	{
+		rx_unicast_packets = stats->rx_packets - (stats->multicast + stats->rx_broadcast_packets);
+	}
+	else
+	{
+		rx_unicast_packets = stats->rx_unicast_packets;
+	}
+
+	if ((stats->tx_multicast_packets + stats->tx_broadcast_packets) < stats->tx_packets)
+	{
+		tx_unicast_packets = stats->tx_packets - (stats->tx_multicast_packets + stats->tx_broadcast_packets);
+	}
+	else
+	{
+		tx_unicast_packets = stats->tx_unicast_packets;
+	}
+
+	/* Print basic statistics, which are identical to baseline with only a few spacing differences */
+	seq_printf(seq, "%6s:%8llu %7llu %4llu %4llu %4llu %5llu %5llu %5llu "
+		   "%8llu %7llu %4llu %4llu %4llu %4llu %4llu %5llu ",
+		   dev->name, stats->rx_bytes, stats->rx_packets,
+		   stats->rx_errors,
+		   stats->rx_dropped + stats->rx_missed_errors,
+		   stats->rx_fifo_errors,
+		   stats->rx_length_errors + stats->rx_over_errors +
+		   stats->rx_crc_errors + stats->rx_frame_errors,
+		   stats->rx_compressed, stats->multicast,
+		   stats->tx_bytes, stats->tx_packets,
+		   stats->tx_errors, stats->tx_dropped,
+		   stats->tx_fifo_errors, stats->collisions,
+		   stats->tx_carrier_errors +
+		   stats->tx_aborted_errors +
+		   stats->tx_window_errors +
+		   stats->tx_heartbeat_errors,
+		   stats->tx_compressed);
+
+	/* Print extended statistics */ 
+	seq_printf(seq, "%6llu %6llu %6llu "  /* Multicast */
+			"%5llu %5llu %5llu %5llu "  /* Unicast and broadcast*/
+			"%5llu\n",  /* Unknown RX errors */
+		   stats->tx_multicast_packets, stats->rx_multicast_bytes, stats->tx_multicast_bytes, 
+		   rx_unicast_packets, tx_unicast_packets, stats->rx_broadcast_packets, stats->tx_broadcast_packets, 
+		   stats->rx_unknown_packets);  
+}
+
+/*
+ *	Called from the PROCfs module to create extended statistics file /proc/net/dev_extstats
+ */
+static int devextstats_seq_show(struct seq_file *seq, void *v)
+{
+	if (v == SEQ_START_TOKEN)
+	{
+ 		seq_puts(seq, "   Basic Statistics                                                                                     |   Extended Statistics\n"
+					"Inter-|   Receive                                       |  Transmit                                     |multicast           |unicast    |broadcast  |unkn\n"
+					" face |  bytes    pckts errs drop fifo frame  comp multi|  bytes    pckts errs drop fifo coll carr  comp|txpckt rxbyte txbyte|   rx    tx|   rx    tx|rxerr\n");
+	}
+	else
+	{
+		devextstats_seq_printf_stats(seq, v);
+	}
+	return 0;
+}
+#endif /* CONFIG_TP_IMAGE */
+
+
 
 /*
  *	Called from the PROCfs module. This now uses the new arbitrary sized
@@ -166,6 +255,7 @@ static int softnet_seq_show(struct seq_file *seq, void *v)
 	return 0;
 }
 
+
 static const struct seq_operations dev_seq_ops = {
 	.start = dev_seq_start,
 	.next  = dev_seq_next,
@@ -206,6 +296,29 @@ static const struct file_operations softnet_seq_fops = {
 	.llseek  = seq_lseek,
 	.release = seq_release,
 };
+
+#ifdef CONFIG_TP_IMAGE
+static const struct seq_operations devextstats_seq_ops = {
+	.start = dev_seq_start,
+	.next  = dev_seq_next,
+	.stop  = dev_seq_stop,
+	.show  = devextstats_seq_show,
+};
+
+static int devextstats_seq_open(struct inode *inode, struct file *file)
+{
+	return seq_open_net(inode, file, &devextstats_seq_ops,
+			    sizeof(struct seq_net_private));
+}
+
+static const struct file_operations devextstats_seq_fops = {
+	.owner	 = THIS_MODULE,
+	.open    = devextstats_seq_open,
+	.read    = seq_read,
+	.llseek  = seq_lseek,
+	.release = seq_release_net,
+};
+#endif /* CONFIG_TP_IMAGE*/
 
 static void *ptype_get_idx(loff_t pos)
 {
@@ -324,11 +437,24 @@ static int __net_init dev_proc_net_init(struct net *net)
 	if (!proc_create("ptype", S_IRUGO, net->proc_net, &ptype_seq_fops))
 		goto out_softnet;
 
+#ifdef CONFIG_TP_IMAGE
+	if (!proc_create("dev_extstats", S_IRUGO, net->proc_net, &devextstats_seq_fops))
+	{
+		goto out_extstats;
+	}
+#endif /* CONFIG_TP_IMAGE */
+
 	if (wext_proc_init(net))
 		goto out_ptype;
+
+
 	rc = 0;
 out:
 	return rc;
+#ifdef CONFIG_TP_IMAGE
+out_extstats:
+	remove_proc_entry("dev_extstats", net->proc_net);
+#endif /*CONFIG_TP_IMAGE*/
 out_ptype:
 	remove_proc_entry("ptype", net->proc_net);
 out_softnet:
@@ -376,6 +502,7 @@ static int dev_mc_seq_show(struct seq_file *seq, void *v)
 	return 0;
 }
 
+#ifdef CONFIG_TP_IMAGE
 static const struct seq_operations dev_mc_seq_ops = {
 	.start = dev_seq_start,
 	.next  = dev_seq_next,
@@ -396,6 +523,7 @@ static const struct file_operations dev_mc_seq_fops = {
 	.llseek  = seq_lseek,
 	.release = seq_release_net,
 };
+#endif /* CONFIG_TP_IMAGE */
 
 static int __net_init dev_mc_net_init(struct net *net)
 {

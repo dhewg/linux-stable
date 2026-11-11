@@ -59,6 +59,45 @@ static void uart_change_pm(struct uart_state *state,
 
 static void uart_port_shutdown(struct tty_port *port);
 
+/* TP-LINK tp_netlog [  */
+#ifdef INCLUDE_TP_NETLOG
+/**
+    global variable for netlog uart console port
+ */
+struct uart_port *tp_netlog_uart_port    = NULL;
+/**
+    function pointer for tp-netlog to intercept uart console output
+ */
+void (*tp_netlog_send_buf)(unsigned int console_type, const char *buf, const int buf_len ) = NULL;
+/* 
+ * brief    check the uart driver is for tty serial console
+ *          and uart_port line number is what we want.
+ *          the function should be called within uart_add_one_port
+ *
+ * param[in]    drv   - uart serial driver
+ * param[in]    uport - uart serial port
+ *
+ * retval      void
+ */
+static void netlog_check_uart_port(struct uart_driver *drv, struct uart_port *uport)
+{
+#define NETLOG_TTY_SERIAL       "ttyS"
+	/* check this is tty Serial device */
+	if ( 0 == strncmp(drv->dev_name, NETLOG_TTY_SERIAL, strlen(NETLOG_TTY_SERIAL)) )
+	{
+		/* check this is ttyS0 */
+		if ( uport->line == 0 /* ttyS0 */ )
+		{
+			printk("%s@%d  found netlog uport \n", __func__, __LINE__);
+			tp_netlog_uart_port = uport;
+		}
+	}
+	return;
+#undef NETLOG_TTY_SERIAL
+}
+#endif
+/* ] TP-LINK tp_netlog  */
+
 static int uart_dcd_enabled(struct uart_port *uport)
 {
 	return uport->status & UPSTAT_DCD_ENABLE;
@@ -492,6 +531,15 @@ static int uart_put_char(struct tty_struct *tty, unsigned char ch)
 {
 	struct uart_state *state = tty->driver_data;
 
+	/* TP-LINK tp_netlog [  */
+	#ifdef INCLUDE_TP_NETLOG
+	if ( unlikely(tp_netlog_send_buf != NULL) )
+	{
+		tp_netlog_send_buf(1 /*tty console */, &ch, 1);
+	}
+	#endif
+	/* ] TP-LINK tp_netlog  */
+	
 	return __uart_put_char(state->uart_port, &state->xmit, ch);
 }
 
@@ -523,6 +571,15 @@ static int uart_write(struct tty_struct *tty,
 
 	if (!circ->buf)
 		return 0;
+
+	/* TP-LINK tp_netlog [  */
+	#ifdef INCLUDE_TP_NETLOG
+	if ( unlikely(tp_netlog_send_buf != NULL) )
+	{
+		tp_netlog_send_buf(1 /* tty console */, (const char *) buf, (const int) count);
+	}
+	#endif
+	/* ] TP-LINK tp_netlog  */
 
 	spin_lock_irqsave(&port->lock, flags);
 	while (1) {
@@ -2642,6 +2699,12 @@ int uart_add_one_port(struct uart_driver *drv, struct uart_port *uport)
 	 */
 	uport->flags &= ~UPF_DEAD;
 
+	/* TP-LINK tp_netlog [  */
+	#ifdef INCLUDE_TP_NETLOG
+	netlog_check_uart_port(drv, uport);
+	#endif
+	/* ] TP-LINK tp_netlog  */
+
  out:
 	mutex_unlock(&port->mutex);
 	mutex_unlock(&port_mutex);
@@ -2841,6 +2904,14 @@ void uart_insert_char(struct uart_port *port, unsigned int status,
 			++port->icount.buf_overrun;
 }
 EXPORT_SYMBOL_GPL(uart_insert_char);
+
+
+/* TP-LINK tp_netlog [  */
+#ifdef INCLUDE_TP_NETLOG
+EXPORT_SYMBOL(tp_netlog_uart_port);
+EXPORT_SYMBOL(tp_netlog_send_buf);
+#endif
+/* ] TP-LINK tp_netlog  */
 
 EXPORT_SYMBOL(uart_write_wakeup);
 EXPORT_SYMBOL(uart_register_driver);

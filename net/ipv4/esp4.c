@@ -17,6 +17,8 @@
 #include <net/icmp.h>
 #include <net/protocol.h>
 #include <net/udp.h>
+#include <ecnt_hook/ecnt_hook_crypto.h>
+
 
 struct esp_skb_cb {
 	struct xfrm_skb_cb xfrm;
@@ -135,6 +137,10 @@ static int esp_output(struct xfrm_state *x, struct sk_buff *skb)
 	int sglists;
 	int seqhilen;
 	__be32 *seqhi;
+
+    err = CRYPTO_API_DO_IPSEC_ESP_OUTPUT(ECNT_CRYPTO, x, skb);
+    if (err != ECNT_CONTINUE) 
+        return err;
 
 	/* skb is pure payload to encrypt */
 
@@ -385,6 +391,12 @@ static int esp_input(struct xfrm_state *x, struct sk_buff *skb)
 	struct scatterlist *sg;
 	struct scatterlist *asg;
 	int err = -EINVAL;
+
+    err = CRYPTO_API_DO_IPSEC_ESP_INPUT_PT(ECNT_CRYPTO, x, skb);
+    if (err == ECNT_CONTINUE) /* no HW Crypto */
+        err = -EINVAL;
+    else
+        return err;
 
 	if (!pskb_may_pull(skb, sizeof(*esph) + crypto_aead_ivsize(aead)))
 		goto out;

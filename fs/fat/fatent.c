@@ -556,7 +556,7 @@ int fat_free_clusters(struct inode *inode, int cluster)
 	struct msdos_sb_info *sbi = MSDOS_SB(sb);
 	struct fatent_operations *ops = sbi->fatent_ops;
 	struct fat_entry fatent;
-	struct buffer_head *bhs[MAX_BUF_PER_PAGE];
+	struct buffer_head *bhs[MAX_BUF_PER_PAGE] = {NULL};
 	int i, err, nr_bhs;
 	int first_cl = cluster, dirty_fsinfo = 0;
 

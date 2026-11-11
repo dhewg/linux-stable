@@ -62,7 +62,15 @@ static int fw_classify(struct sk_buff *skb, const struct tcf_proto *tp,
 	struct fw_head *head = rcu_dereference_bh(tp->root);
 	struct fw_filter *f;
 	int r;
+/*
+ * brief	change ->mark to ->mark2 temporarily
+ * By	wangwenhao, 2Nov22
+ */
+#if defined(CONFIG_TP_IMAGE) && defined(INCLUDE_TP_MARK)
+	u32 id = skb->mark2;
+#else /* defined(CONFIG_TP_IMAGE) && defined(INCLUDE_TP_MARK) */
 	u32 id = skb->mark;
+#endif /* defined(CONFIG_TP_IMAGE) && defined(INCLUDE_TP_MARK) */
 
 	if (head != NULL) {
 		id &= head->mask;

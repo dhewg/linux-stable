@@ -276,7 +276,7 @@ static int ovl_dir_mark_whiteouts(struct dentry *dir,
 
 static int ovl_dir_read_merged(struct dentry *dentry, struct list_head *list)
 {
-	int err;
+	int err = 0;
 	struct path lowerpath;
 	struct path upperpath;
 	struct ovl_readdir_data rdd = {

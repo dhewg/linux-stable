@@ -137,11 +137,12 @@ static inline void check_stack_overflow(void) {}
  * SMP cross-CPU interrupts have their own specific
  * handlers).
  */
-void __irq_entry do_IRQ(unsigned int irq)
+__IMEM void __irq_entry do_IRQ(unsigned int irq)
 {
 	irq_enter();
 	check_stack_overflow();
 	generic_handle_irq(irq);
 	irq_exit();
 }
+EXPORT_SYMBOL(do_IRQ);
 

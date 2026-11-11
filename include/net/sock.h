@@ -69,6 +69,7 @@
 #include <net/checksum.h>
 #include <net/tcp_states.h>
 #include <linux/net_tstamp.h>
+#include <linux/foe_hook.h>
 
 struct cgroup;
 struct cgroup_subsys;
@@ -422,7 +423,18 @@ struct sock {
 	void			*sk_security;
 #endif
 	__u32			sk_mark;
+
+	/* bit 0~3 for TR143
+	   bit4 is reserved */
+	/* bit5 for WAN BI */
+#define SOCK_TYPE_WAN_BI (1<<5)
+	/* bit6~7 NOT USED */
+	/* bit8~10 for traffic process. */
+#define TRAFFIC_PROCESS_MASK (0x700)
+	__u16        	lPbit;
 	u32			sk_classid;
+	__u16		lVlanId;
+
 	struct cg_proto		*sk_cgrp;
 	void			(*sk_state_change)(struct sock *sk);
 	void			(*sk_data_ready)(struct sock *sk);
@@ -431,6 +443,9 @@ struct sock {
 	int			(*sk_backlog_rcv)(struct sock *sk,
 						  struct sk_buff *skb);
 	void                    (*sk_destruct)(struct sock *sk);
+	struct SkbFoeInfo sk_foe_info;
+
+	struct SmbdSpeedInfo sk_smbd_info;
 };
 
 #define __sk_user_data(sk) ((*((void __rcu **)&(sk)->sk_user_data)))

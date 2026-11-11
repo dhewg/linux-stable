@@ -473,6 +473,9 @@ enum ip_defrag_users {
 	IP_DEFRAG_VS_FWD,
 	IP_DEFRAG_AF_PACKET,
 	IP_DEFRAG_MACVLAN,
+#ifdef MTK_CRYPTO_DRIVER
+	IP_DEFRAG_VPN_SPEED,
+#endif
 };
 
 int ip_defrag(struct sk_buff *skb, u32 user);

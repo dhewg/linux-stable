@@ -12,6 +12,8 @@
 #ifndef __JFFS2_OS_LINUX_H__
 #define __JFFS2_OS_LINUX_H__
 
+#include <asm/tc3162/tc3162.h>
+
 /* JFFS2 uses Linux mode bits natively -- no need for conversion */
 #define os_to_jffs2_mode(x) (x)
 #define jffs2_to_os_mode(x) (x)
@@ -107,7 +109,11 @@ static inline void jffs2_init_inode_info(struct jffs2_inode_info *f)
 #define jffs2_can_mark_obsolete(c) (c->mtd->flags & (MTD_BIT_WRITEABLE))
 #endif
 
+#if 1/* default disbale cleanmarker_oob */
+#define jffs2_cleanmarker_oob(c) 0
+#else
 #define jffs2_cleanmarker_oob(c) (c->mtd->type == MTD_NANDFLASH)
+#endif
 
 #define jffs2_wbuf_dirty(c) (!!(c)->wbuf_len)
 
@@ -133,7 +139,11 @@ void jffs2_dataflash_cleanup(struct jffs2_sb_info *c);
 int jffs2_ubivol_setup(struct jffs2_sb_info *c);
 void jffs2_ubivol_cleanup(struct jffs2_sb_info *c);
 
-#define jffs2_nor_wbuf_flash(c) (c->mtd->type == MTD_NORFLASH && ! (c->mtd->flags & MTD_BIT_WRITEABLE))
+#if 0/* default enable nor wbuf flash */
+#define jffs2_nor_wbuf_flash(c) 1
+#else
+#define jffs2_nor_wbuf_flash(c) ( IS_NANDFLASH ? 1 : (c->mtd->type == MTD_NORFLASH && ! (c->mtd->flags & MTD_BIT_WRITEABLE))  )
+#endif
 int jffs2_nor_wbuf_flash_setup(struct jffs2_sb_info *c);
 void jffs2_nor_wbuf_flash_cleanup(struct jffs2_sb_info *c);
 void jffs2_dirty_trigger(struct jffs2_sb_info *c);

@@ -20,6 +20,7 @@
 #include <net/net_namespace.h>
 #include <asm/uaccess.h>
 #include "br_private.h"
+#include "ecnt_br.h"
 
 /* called with RTNL */
 static int get_bridge_ifindices(struct net *net, int *indices, int num)
@@ -116,7 +117,21 @@ static int old_dev_ioctl(struct net_device *dev, struct ifreq *rq, int cmd)
 
 	if (copy_from_user(args, rq->ifr_data, sizeof(args)))
 		return -EFAULT;
-
+	
+	/*ecnt_old_dev_ioctl_inline_hook*/
+	/*case BRCTL_GET_BRIDGE_INFO , and case BRCTL_GET_PORT_INFO, have been moved to hook*/
+	/*any changes , be careful*/
+	{
+		int retval = 0 ;
+		int ret = 0 ;
+		ret = ecnt_old_dev_ioctl_inline_hook(br, rq , &retval) ;
+		if( ECNT_HOOK_ERROR == ret )
+			return -EFAULT;
+		else if( ECNT_RETURN_DROP == ret )
+			return 0 ;
+		else if( ECNT_RETURN == ret )
+			return retval ;
+	}
 	switch (args[0]) {
 	case BRCTL_ADD_IF:
 	case BRCTL_DEL_IF:
@@ -288,6 +303,33 @@ static int old_dev_ioctl(struct net_device *dev, struct ifreq *rq, int cmd)
 	case BRCTL_GET_FDB_ENTRIES:
 		return get_fdb_entries(br, (void __user *)args[1],
 				       args[2], args[3]);
+#ifdef CONFIG_TP_IMAGE
+	case BRCTL_GET_FDB_DST:
+	{
+		struct net_bridge_fdb_entry *fdb;
+		char ifname[IFNAMSIZ];
+		char macaddr[ETH_ALEN];
+		int ret;
+
+		if (copy_from_user(macaddr, (void __user *)args[1], ETH_ALEN))
+			return -EFAULT;
+
+		rcu_read_lock();
+		fdb = __br_fdb_get(br, macaddr, 0);
+		if (fdb && fdb->dst && fdb->dst->dev)
+			strncpy(ifname, fdb->dst->dev->name, IFNAMSIZ);
+		else
+		{
+			rcu_read_unlock();
+			return -EINVAL;
+		}
+
+		rcu_read_unlock();
+		ret = copy_to_user(args[2], ifname, sizeof(ifname)) ? -EFAULT : 0;
+
+		return ret;
+	}
+#endif /*CONFIG_TP_IMAGE*/
 	}
 
 	return -EOPNOTSUPP;

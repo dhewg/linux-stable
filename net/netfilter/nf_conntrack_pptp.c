@@ -33,6 +33,7 @@
 #include <net/netfilter/nf_conntrack_zones.h>
 #include <linux/netfilter/nf_conntrack_proto_gre.h>
 #include <linux/netfilter/nf_conntrack_pptp.h>
+#include "ecnt_netfilter.h"
 
 #define NF_CT_PPTP_VERSION "3.1"
 
@@ -525,6 +526,9 @@ conntrack_pptp_help(struct sk_buff *skb, unsigned int protoff,
 
 	/* don't do any tracking before tcp handshake complete */
 	if (ctinfo != IP_CT_ESTABLISHED && ctinfo != IP_CT_ESTABLISHED_REPLY)
+		return NF_ACCEPT;
+
+	if ( ECNT_RETURN == ecnt_nf_conntrack_pptp_help_inline_hook(skb, ct) )
 		return NF_ACCEPT;
 
 	nexthdr_off = protoff;

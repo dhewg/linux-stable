@@ -89,6 +89,9 @@
 #include <asm/smp.h>
 #endif
 
+#include <linux/libcompileoption.h>
+#include <ecnt_hook/ecnt_hook.h>
+
 static int kernel_init(void *);
 
 extern void init_IRQ(void);
@@ -502,6 +505,7 @@ asmlinkage __visible void __init start_kernel(void)
 	char *command_line;
 	char *after_dashes;
 
+	init_compileoption_val();
 	/*
 	 * Need to run as early as possible, to initialize the
 	 * lockdep hash:
@@ -599,6 +603,8 @@ asmlinkage __visible void __init start_kernel(void)
 
 	kmem_cache_init_late();
 
+	ecnt_hook_init();
+	
 	/*
 	 * HACK ALERT! This is early. We're enabling the console before
 	 * we've done PCI setups etc, and console_init() must be aware of

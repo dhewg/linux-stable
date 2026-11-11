@@ -20,6 +20,11 @@
 #include <net/route.h>
 #include <linux/if_vlan.h>
 
+/*add by liaoyilu 2020-11-30, for hyfi-bridge*/
+#ifdef CONFIG_HYFI_BRIDGE 
+#include <linux/export.h>
+#endif /*CONFIG_HYFI_BRIDGE*/
+
 #define BR_HASH_BITS 8
 #define BR_HASH_SIZE (1 << BR_HASH_BITS)
 
@@ -40,6 +45,8 @@
 
 /* Path to usermode spanning tree program */
 #define BR_STP_PROG	"/sbin/bridge-stp"
+/*CONFIG_BRIDGE_IGMP_SNOOPING && TCSUPPORT_IGMPSNOOPING_ENHANCE*/
+#define UPNP_MCAST htonl(0xEFFFFFFA)
 
 typedef struct bridge_id bridge_id;
 typedef struct mac_addr mac_addr;
@@ -102,7 +109,17 @@ struct net_bridge_fdb_entry
 	unsigned char			is_static;
 	unsigned char			added_by_user;
 	__u16				vlan_id;
+	unsigned char			vlan_layer;
 };
+
+/*TCSUPPORT_IGMP_SNOOPING start*/
+struct net_bridge_mc_src_entry
+{
+	struct in_addr src;
+	struct in6_addr src6;
+	int filt_mode;
+};
+/*TCSUPPORT_IGMP_SNOOPING end*/
 
 struct net_bridge_port_group {
 	struct net_bridge_port		*port;
@@ -112,6 +129,16 @@ struct net_bridge_port_group {
 	struct timer_list		timer;
 	struct br_ip			addr;
 	unsigned char			state;
+
+/*TCSUPPORT_IGMP_SNOOPING start*/
+	unsigned long			ageing_time;
+	int				leave_count;
+	struct net_bridge_mc_src_entry src_entry; //for IGMPv3
+	unsigned char 			group_mac[6];	/*Multicast address*/
+	unsigned char 			host_mac[6];	/*host mac address*/
+	u8				version;//version = 4 or 6
+/*TCSUPPORT_IGMP_SNOOPING end*/
+
 };
 
 struct net_bridge_mdb_entry
@@ -163,6 +190,7 @@ struct net_bridge_port
 	struct rcu_head			rcu;
 
 	unsigned long 			flags;
+#ifndef TCSUPPORT_HWNAT_V3_SRC
 #define BR_HAIRPIN_MODE		0x00000001
 #define BR_BPDU_GUARD           0x00000002
 #define BR_ROOT_BLOCK		0x00000004
@@ -172,6 +200,7 @@ struct net_bridge_port
 #define BR_FLOOD		0x00000040
 #define BR_AUTO_MASK (BR_FLOOD | BR_LEARNING)
 #define BR_PROMISC		0x00000080
+#endif
 
 #ifdef CONFIG_BRIDGE_IGMP_SNOOPING
 	struct bridge_mcast_own_query	ip4_own_query;
@@ -182,6 +211,14 @@ struct net_bridge_port
 	struct timer_list		multicast_router_timer;
 	struct hlist_head		mglist;
 	struct hlist_node		rlist;
+
+/*TCSUPPORT_IGMP_SNOOPING start*/
+	struct net_bridge_mc_src_entry src_entry; //for IGMPv3 temp
+	mac_addr			macAddr;
+	mac_addr			groupMacAddr;
+	u8				version;//version = 4 or 6;
+/*TCSUPPORT_IGMP_SNOOPING end*/
+	
 #endif
 
 #ifdef CONFIG_SYSFS
@@ -261,7 +298,16 @@ struct net_bridge
 	u8				multicast_disabled:1;
 	u8				multicast_querier:1;
 	u8				multicast_query_use_ifaddr:1;
-
+/*TCSUPPORT_IGMP_SNOOPING start*/
+	u8				quick_leave:1;
+/*TCSUPPORT_IGMP_SNOOPING end*/
+/*TCSUPPORT_SNOOPING_SEPERATION start*/
+	u8				igmp_disabled:1;
+	u8				mld_disabled:1;
+/*TCSUPPORT_SNOOPING_SEPERATION end*/
+#if defined(TCSUPPORT_VLAN_ACCESS_TRUNK)
+	u32				multicast_vlan_disabled[128]; /* vlan 0~4095,  bit map */
+#endif
 	u32				hash_elasticity;
 	u32				hash_max;
 
@@ -489,6 +535,7 @@ void br_mdb_init(void);
 void br_mdb_uninit(void);
 void br_mdb_notify(struct net_device *dev, struct net_bridge_port *port,
 		   struct br_ip *group, int type);
+int ecnt_br_multicast_querier_exists(struct net_bridge *br, struct ethhdr *eth);
 
 #define mlock_dereference(X, br) \
 	rcu_dereference_protected(X, lockdep_is_held(&br->multicast_lock))
@@ -511,6 +558,9 @@ __br_multicast_querier_exists(struct net_bridge *br,
 static inline bool br_multicast_querier_exists(struct net_bridge *br,
 					       struct ethhdr *eth)
 {
+	if(ecnt_br_multicast_querier_exists(br, eth))
+		return true;
+	
 	switch (eth->h_proto) {
 	case (htons(ETH_P_IP)):
 		return __br_multicast_querier_exists(br, &br->ip4_other_query);
@@ -845,5 +895,20 @@ static inline int br_sysfs_renameif(struct net_bridge_port *p) { return 0; }
 static inline int br_sysfs_addbr(struct net_device *dev) { return 0; }
 static inline void br_sysfs_delbr(struct net_device *dev) { return; }
 #endif /* CONFIG_SYSFS */
+
+/*add by liaoyilu 2020-11-30, for hyfi-bridge*/
+#ifdef CONFIG_HYFI_BRIDGE 
+
+#define __br_get( __hook, __default, __args ... ) \
+		(__hook ? (__hook( __args )) : (__default))
+
+static inline void __br_notify(int group, int type, const void *data)
+{
+	br_notify_hook_t *notify_hook = rcu_dereference(br_notify_hook);
+
+	if (notify_hook)
+		notify_hook(group, type, data);
+}
+#endif /*CONFIG_HYFI_BRIDGE*/
 
 #endif

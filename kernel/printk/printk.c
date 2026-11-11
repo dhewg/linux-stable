@@ -46,6 +46,7 @@
 #include <linux/irq_work.h>
 #include <linux/utsname.h>
 #include <linux/ctype.h>
+#include <linux/serial_core.h>  /* TP-LINK tp_netlog  */
 
 #include <asm/uaccess.h>
 
@@ -54,6 +55,9 @@
 
 #include "console_cmdline.h"
 #include "braille.h"
+#include "ecnt_kernel_printk.h"
+
+extern void disable_ring_buffer_mode(int *level);
 
 int console_printk[4] = {
 	CONSOLE_LOGLEVEL_DEFAULT,	/* console_loglevel */
@@ -1398,12 +1402,28 @@ static void call_console_drivers(int level, const char *text, size_t len)
 	struct console *con;
 
 	trace_console(text, len);
+	
+	/* if system crash, that kernel will printk with ALARM log level,
+	 * in this situation, we disable ring buffer mode and flush 
+	 * data in ring buffer for immediately print crash message.
+	 */
+	disable_ring_buffer_mode(level);
+
 
 	if (level >= console_loglevel && !ignore_loglevel)
 		return;
 	if (!console_drivers)
 		return;
 
+	/* TP-LINK tp_netlog [  */
+	#ifdef INCLUDE_TP_NETLOG
+	if ( unlikely(tp_netlog_send_buf != NULL) )
+	{
+		tp_netlog_send_buf(0 /* printk console */, text, (const int) len);
+	}
+	#endif
+	/* ] TP-LINK tp_netlog  */
+	
 	for_each_console(con) {
 		if (exclusive_console && con != exclusive_console)
 			continue;
@@ -1840,6 +1860,7 @@ asmlinkage __visible int printk(const char *fmt, ...)
 #endif
 	va_start(args, fmt);
 	r = vprintk_emit(0, -1, NULL, 0, fmt, args);
+	ecnt_set_panic_log_buffer_hook(&args, fmt);
 	va_end(args);
 
 	return r;

@@ -105,6 +105,7 @@
 #include <linux/proc_fs.h>
 #include <linux/seq_file.h>
 #endif
+#include <ecnt_hook/ecnt_hook_net.h>
 
 #define IP_MAX_MEMBERSHIPS	20
 #define IP_MAX_MSF		10
@@ -1168,6 +1169,7 @@ static void igmpv3_clear_delrec(struct in_device *in_dev)
 static void igmp_group_dropped(struct ip_mc_list *im)
 {
 	struct in_device *in_dev = im->interface;
+	struct net_data_s net_data;
 #ifdef CONFIG_IP_MULTICAST
 	int reporter;
 #endif
@@ -1180,6 +1182,8 @@ static void igmp_group_dropped(struct ip_mc_list *im)
 #ifdef CONFIG_IP_MULTICAST
 	if (im->multiaddr == IGMP_ALL_HOSTS)
 		return;
+
+	ECNT_IGMP_HOOK(ECNT_NET_IGMP_GROUP_DROPPED,&net_data);
 
 	reporter = im->reporter;
 	igmp_stop_timer(im);
@@ -1203,6 +1207,7 @@ static void igmp_group_dropped(struct ip_mc_list *im)
 static void igmp_group_added(struct ip_mc_list *im)
 {
 	struct in_device *in_dev = im->interface;
+	struct net_data_s net_data;
 
 	if (im->loaded == 0) {
 		im->loaded = 1;
@@ -1212,6 +1217,8 @@ static void igmp_group_added(struct ip_mc_list *im)
 #ifdef CONFIG_IP_MULTICAST
 	if (im->multiaddr == IGMP_ALL_HOSTS)
 		return;
+	
+	ECNT_IGMP_HOOK(ECNT_NET_IGMP_GROUP_ADDED,&net_data);
 
 	if (in_dev->dead)
 		return;
@@ -1942,7 +1949,16 @@ int ip_mc_leave_group(struct sock *sk, struct ip_mreqn *imr)
 
 	rtnl_lock();
 	in_dev = ip_mc_find_dev(net, imr);
-	if (!in_dev) {
+#if defined(CONFIG_TP_IMAGE)
+	/* Modified by Lailinzhi 20221110
+	 * If dev is down before leaving group, in_dev will be NULL
+	 * In this case, iml should also be deleted correctly
+	 * Sync from the newest Linux Kernel (v6.0.7)*/
+	if (!imr->imr_ifindex && !imr->imr_address.s_addr && !in_dev) 
+#else
+	if (!in_dev) 
+#endif /* CONFIG_TP_IMAGE */
+	{
 		ret = -ENODEV;
 		goto out;
 	}
@@ -1962,8 +1978,15 @@ int ip_mc_leave_group(struct sock *sk, struct ip_mreqn *imr)
 		(void) ip_mc_leave_src(sk, iml, in_dev);
 
 		*imlp = iml->next_rcu;
-
-		ip_mc_dec_group(in_dev, group);
+		
+#if defined(CONFIG_TP_IMAGE)
+		/* Modified by Lailinzhi 20221110 */
+		if (in_dev) 
+#endif /* CONFIG_TP_IMAGE */
+		{
+			ip_mc_dec_group(in_dev, group);
+		}
+		
 		rtnl_unlock();
 		/* decrease mem now to avoid the memleak warning */
 		atomic_sub(sizeof(*iml), &sk->sk_omem_alloc);
@@ -2431,6 +2454,8 @@ int ip_check_mc_rcu(struct in_device *in_dev, __be32 mc_addr, __be32 src_addr, u
 	return rv;
 }
 
+EXPORT_SYMBOL(ip_check_mc_rcu);
+
 #if defined(CONFIG_PROC_FS)
 struct igmp_mc_iter_state {
 	struct seq_net_private p;
@@ -2545,7 +2570,7 @@ static int igmp_mc_seq_show(struct seq_file *seq, void *v)
 		delta = im->timer.expires - jiffies;
 		seq_printf(seq,
 			   "\t\t\t\t%08X %5d %d:%08lX\t\t%d\n",
-			   im->multiaddr, im->users,
+			   ntohl(im->multiaddr), im->users,
 			   im->tm_running,
 			   im->tm_running ? jiffies_delta_to_clock_t(delta) : 0,
 			   im->reporter);

@@ -184,6 +184,129 @@ struct load_info {
 	} index;
 };
 
+/****************************************************************************
+						Ecnt Support IMEM for Modules
+ ****************************************************************************/
+#ifdef CONFIG_MIPS_TC3262
+#include <asm/tc3162/tc3162.h>
+extern int __imem, __dmem;
+
+#ifdef CONFIG_TC3162_IMEM 
+unsigned char refill[NR_CPUS];
+unsigned int imem_remains;
+#if defined(TCSUPPORT_CPU_EN7512) || defined(TCSUPPORT_CPU_EN7521)
+#undef CONFIG_IMEM_SIZE
+#define CONFIG_IMEM_SIZE 65536
+#endif
+#else
+#ifdef L2CACHE_LOCK_CODE
+#include <asm/tc3162/irq.h>
+extern int __l2cmem, _l2cmem_end;
+extern int l2c_lock_range(unsigned long start, unsigned long end);
+unsigned int l2c_next_dest = (unsigned int)&_l2cmem_end;
+static unsigned char needLock[NR_CPUS];
+static unsigned int lock_start, lock_len;
+#endif /*L2CACHE_LOCK_CODE*/
+#endif
+#endif
+
+#ifdef CONFIG_TC3162_IMEM
+void ecnt_move_module(struct load_info *info, void **pdest, Elf_Shdr *shdr)
+{
+	extern int __imem, _imem_end;
+	static unsigned int next_dest = &_imem_end;
+	mutex_lock(&module_mutex);
+	if(!strcmp(info->secstrings + shdr->sh_name, ".imem_text")){
+		refill[smp_processor_id()] = 0;
+		imem_remains = (unsigned int)(&__imem) + CONFIG_IMEM_SIZE - next_dest;
+		unsigned char mod;
+	
+		if((mod = next_dest & 3) != 0)
+			next_dest += (4 - mod);
+		if(next_dest + shdr->sh_size > (unsigned int)(&__imem) + CONFIG_IMEM_SIZE){
+			printk("The remaining IMEM space cannot accommodate section %s !!\r\n", info->secstrings + shdr->sh_name);
+			//printk("Remaining IMEM space: %d bytes\tSection Size: %d bytes\r\n", imem_remains, shdr->sh_size);
+		}
+		else{
+			*pdest = next_dest;
+			next_dest += shdr->sh_size;
+			imem_remains = (unsigned int)(&__imem) + CONFIG_IMEM_SIZE - next_dest;
+			refill[smp_processor_id()] = 1;
+			//printk("Remaining IMEM space: %d bytes\tSection Size: %d bytes\r\n", imem_remains, shdr->sh_size);
+			//printk("==>move_module: set refill to 1!!!\n");
+		}
+	}
+	mutex_unlock(&module_mutex);
+}
+
+void ecnt_init_module(void)
+{
+	unsigned int controlReg;
+	unsigned long flags;
+	/* refill internal imem */
+	mutex_lock(&module_mutex);
+	if(refill[smp_processor_id()]){
+		//printk("SYSCALL_DEFINE3: will call ispram_fill......\n");
+		ispram_refill();
+		//printk("SYSCALL_DEFINE3:  ispram_fill done!!\n");
+		//VPint(CR_DMC_ISPCFGR) = (CPHYSADDR(&__imem) & 0xfffff000) | (1<<8) | (0x7);
+		refill[smp_processor_id()] = 0;
+	}
+	mutex_unlock(&module_mutex);
+}
+#else
+#ifdef L2CACHE_LOCK_CODE
+void ecnt_move_module(struct load_info *info, void **pdest, Elf_Shdr *shdr)
+{
+    unsigned char left;
+
+    mutex_lock(&module_mutex);
+    if(!strcmp(info->secstrings + shdr->sh_name, ".l2cmem_text"))
+    {
+        needLock[smp_processor_id()] = 0;
+
+        /* 32byte alignment*/	
+        if((left = (l2c_next_dest & 0x1f)) != 0)
+            l2c_next_dest += (32 - left);
+        lock_start = l2c_next_dest;
+        lock_len = shdr->sh_size;
+        if((left = (lock_len & 0x1f)) != 0)
+            lock_len += (32 - left);        
+        
+        if((lock_start + lock_len) > (unsigned int)(&__l2cmem) + MAX_L2C_LOCK_SIZE){
+            printk("The remaining L2CMEM space cannot accommodate section %s !!\r\n", info->secstrings + shdr->sh_name);
+            printk("lock_start:0x%08x, lock_len:%d, &__l2cmem:0x%08x, MAX_L2C_LOCK_SIZE:%dK\n", 
+                lock_start, (int)lock_len, (unsigned int)(&__l2cmem), (int)(MAX_L2C_LOCK_SIZE>>10));
+        }
+        else{
+            *pdest = (void*)lock_start; 
+            l2c_next_dest += lock_len;
+            needLock[smp_processor_id()] = 1;
+        }
+    }
+    mutex_unlock(&module_mutex);
+    
+    return;
+}
+
+void ecnt_init_module(void)
+{
+    mutex_lock(&module_mutex);
+    if(needLock[smp_processor_id()]){
+        /* printk("\n%s lock range: 0x%08x ~ 0x%08x\n", __func__, lock_start, lock_start+lock_len-1); */
+        if (l2c_lock_range((unsigned long)lock_start, (unsigned long)(lock_start+lock_len))==0)
+            printk("l2c_lock_range for module: OK\n");
+        needLock[smp_processor_id()] = 0;
+    }
+    mutex_unlock(&module_mutex);
+
+    return;
+}
+#endif
+#endif
+
+/****************************************************************************/
+
 /* We require a truly strong try_module_get(): 0 means failure due to
    ongoing or failed initialization etc. */
 static inline int strong_try_module_get(struct module *mod)
@@ -2676,10 +2799,12 @@ static int check_modinfo(struct module *mod, struct load_info *info, int flags)
 		err = try_to_force_load(mod, "bad vermagic");
 		if (err)
 			return err;
+#if !defined(CONFIG_MIPS_TC3262)
 	} else if (!same_magic(modmagic, vermagic, info->index.vers)) {
 		pr_err("%s: version magic '%s' should be '%s'\n",
 		       mod->name, modmagic, vermagic);
 		return -ENOEXEC;
+#endif
 	}
 
 	if (!get_modinfo(info, "intree"))
@@ -2831,7 +2956,9 @@ static int move_module(struct module *mod, struct load_info *info)
 				+ (shdr->sh_entsize & ~INIT_OFFSET_MASK);
 		else
 			dest = mod->module_core + shdr->sh_entsize;
-
+#if defined(CONFIG_TC3162_IMEM) || defined(L2CACHE_LOCK_CODE)
+		ecnt_move_module(info, &dest, shdr);
+#endif
 		if (shdr->sh_type != SHT_NOBITS)
 			memcpy(dest, (void *)shdr->sh_addr, shdr->sh_size);
 		/* Update sh_addr to point to copy in image. */
@@ -3012,6 +3139,9 @@ static int do_init_module(struct module *mod)
 {
 	int ret = 0;
 
+#if defined(CONFIG_TC3162_IMEM) || defined(L2CACHE_LOCK_CODE)	
+	ecnt_init_module();
+#endif
 	/*
 	 * We want to find out whether @mod uses async during init.  Clear
 	 * PF_USED_ASYNC.  async_schedule*() will set it.
@@ -3192,6 +3322,14 @@ static int load_module(struct load_info *info, const char __user *uargs,
 	long err;
 	char *after_dashes;
 
+	if(info->hdr->e_ident[9] == 'E' && info->hdr->e_ident[10] == 'C' && info->hdr->e_ident[11] == 'N' && info->hdr->e_ident[12] == 'T')
+	{
+		info->hdr->e_shoff -= info->hdr->e_ident[15];
+		info->hdr->e_shnum -= info->hdr->e_ident[15];
+		info->hdr->e_shstrndx -= info->hdr->e_ident[15];
+		
+	}
+
 	err = module_sig_check(info);
 	if (err)
 		goto free_copy;
@@ -3249,8 +3387,13 @@ static int load_module(struct load_info *info, const char __user *uargs,
 	err = simplify_symbols(mod, info);
 	if (err < 0)
 		goto free_modinfo;
-
+#if defined(CONFIG_TC3162_IMEM) || defined(L2CACHE_LOCK_CODE)
+	mutex_lock(&module_mutex);
+#endif
 	err = apply_relocations(mod, info);
+#if defined(CONFIG_TC3162_IMEM) || defined(L2CACHE_LOCK_CODE)
+	mutex_unlock(&module_mutex);
+#endif	
 	if (err < 0)
 		goto free_modinfo;
 

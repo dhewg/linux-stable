@@ -938,7 +938,7 @@ void __hardpps(const struct timespec *phase_ts, const struct timespec *raw_ts)
 
 static int __init ntp_tick_adj_setup(char *str)
 {
-	int rc = kstrtol(str, 0, (long *)&ntp_tick_adj);
+	int rc = kstrtos64(str, 0, (long *)&ntp_tick_adj);
 
 	if (rc)
 		return rc;

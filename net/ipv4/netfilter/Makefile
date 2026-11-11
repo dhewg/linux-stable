@@ -3,7 +3,7 @@
 #
 
 # objects for l3 independent conntrack
-nf_conntrack_ipv4-y	:=  nf_conntrack_l3proto_ipv4.o nf_conntrack_proto_icmp.o
+nf_conntrack_ipv4-y	:=  nf_conntrack_l3proto_ipv4.o nf_conntrack_proto_icmp.o ecnt_nf_conntrack_l3proto_ipv4.o
 ifeq ($(CONFIG_NF_CONNTRACK_PROC_COMPAT),y)
 ifeq ($(CONFIG_PROC_FS),y)
 nf_conntrack_ipv4-objs	+= nf_conntrack_l3proto_ipv4_compat.o
@@ -69,3 +69,8 @@ obj-$(CONFIG_IP_NF_ARP_MANGLE) += arpt_mangle.o
 
 # just filtering instance of ARP tables for now
 obj-$(CONFIG_IP_NF_ARPFILTER) += arptable_filter.o
+
+ifeq ($(TCSUPPORT_PORT_TRIGGER),1)
+obj-y += ipt_TRIGGER.o
+endif
+

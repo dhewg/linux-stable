@@ -48,6 +48,8 @@
 #include <asm/unaligned.h>
 #include <linux/list.h>
 
+#include <linux/seq_file.h>
+
 #include "cdc-acm.h"
 
 
@@ -57,7 +59,7 @@
 static struct usb_driver acm_driver;
 static struct tty_driver *acm_tty_driver;
 static struct acm *acm_table[ACM_TTY_MINORS];
-
+static DEFINE_MUTEX(open_mutex);
 static DEFINE_MUTEX(acm_table_lock);
 
 static void acm_tty_set_termios(struct tty_struct *tty,
@@ -960,6 +962,50 @@ static int acm_tty_ioctl(struct tty_struct *tty,
 
 	return rv;
 }
+
+/* added by zhangshen, 2012-12-13 */
+#ifdef CONFIG_TP_IMAGE
+static int acm_proc_show(struct seq_file *m, void *v)
+{
+	struct acm *acm;
+	int i;
+	int ifIndex = -1;
+
+	mutex_lock(&open_mutex);
+	for (i = 0; i < ACM_TTY_MINORS; ++i) {
+		acm = acm_table[i];
+		if (acm)
+			mutex_lock(&acm->mutex);
+		if (acm == NULL)
+			continue;
+		seq_printf (m, "ttyIndex:%d", i);
+		seq_printf (m, " vendor:%04x product:%04x", 
+				   le16_to_cpu(acm->dev->descriptor.idVendor), 
+				   le16_to_cpu(acm->dev->descriptor.idProduct));
+		ifIndex = acm->control->cur_altsetting->desc.bInterfaceNumber;
+		seq_printf (m, " ifIndex:%d", ifIndex);
+		seq_putc (m, '\n');
+		mutex_unlock(&acm->mutex);
+	}
+	mutex_unlock(&open_mutex);
+	return 0;
+
+}
+
+static int acm_proc_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, acm_proc_show, NULL);
+}
+
+static const struct file_operations acm_proc_fops = {
+	.owner		= THIS_MODULE,
+	.open		= acm_proc_open,
+	.read		= seq_read,
+	.llseek		= seq_lseek,
+	.release	= single_release,
+};
+#endif /* CONFIG_TP_IMAGE */
+/* end--added */
 
 static void acm_tty_set_termios(struct tty_struct *tty,
 						struct ktermios *termios_old)

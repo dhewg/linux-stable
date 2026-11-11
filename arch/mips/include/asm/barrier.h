@@ -66,6 +66,15 @@
 #define smp_read_barrier_depends()	do { } while(0)
 
 #ifdef CONFIG_CPU_HAS_SYNC
+#ifdef TCSUPPORT_CPU_EN7580
+extern void (*ecnt_sync_func)(void);
+
+#define __sync()		\
+do {					\
+	ecnt_sync_func();		\
+} while (0)
+
+#else
 #define __sync()				\
 	__asm__ __volatile__(			\
 		".set	push\n\t"		\
@@ -76,6 +85,7 @@
 		: /* no output */		\
 		: /* no input */		\
 		: "memory")
+#endif
 #else
 #define __sync()	do { } while(0)
 #endif

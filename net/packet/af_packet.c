@@ -94,6 +94,8 @@
 #endif
 
 #include "internal.h"
+#include "ecnt_packet.h"
+#include <ecnt_hook/ecnt_hook_net.h>
 
 /*
    Assumptions:
@@ -1714,7 +1716,10 @@ static unsigned int run_filter(const struct sk_buff *skb,
 	rcu_read_lock();
 	filter = rcu_dereference(sk->sk_filter);
 	if (filter != NULL)
+	{
 		res = SK_RUN_FILTER(filter, skb);
+		ecnt_packet_run_filter_hook(skb, sk, &res);
+	}
 	rcu_read_unlock();
 
 	return res;
@@ -1761,8 +1766,9 @@ static int packet_rcv(struct sk_buff *skb, struct net_device *dev,
 		 * structure, so that corresponding packet head is
 		 * never delivered to user.
 		 */
-		if (sk->sk_type != SOCK_DGRAM)
+		if (sk->sk_type != SOCK_DGRAM){
 			skb_push(skb, skb->data - skb_mac_header(skb));
+		}
 		else if (skb->pkt_type == PACKET_OUTGOING) {
 			/* Special case: outgoing packets have ll header at head */
 			skb_pull(skb, skb_network_offset(skb));
@@ -1782,6 +1788,7 @@ static int packet_rcv(struct sk_buff *skb, struct net_device *dev,
 
 	if (skb_shared(skb)) {
 		struct sk_buff *nskb = skb_clone(skb, GFP_ATOMIC);
+		ECNT_PACKET_RCV_HOOK(ECNT_NET_AF_PACKET_RCV, skb, nskb);
 		if (nskb == NULL)
 			goto drop_n_acct;
 
@@ -1793,6 +1800,12 @@ static int packet_rcv(struct sk_buff *skb, struct net_device *dev,
 		skb = nskb;
 	}
 
+	if((dev->header_ops)&& (sk->sk_type != SOCK_DGRAM))
+	{
+		if(!skb_make_writable(skb, skb->len))
+			goto drop_n_acct;
+		ecnt_packet_rcv_inline_hook(skb, orig_dev);
+	}
 	BUILD_BUG_ON(sizeof(*PACKET_SKB_CB(skb)) + MAX_ADDR_LEN - 8 >
 		     sizeof(skb->cb));
 
@@ -2516,6 +2529,8 @@ static int packet_snd(struct socket *sock, struct msghdr *msg, size_t len)
 	skb->priority = sk->sk_priority;
 	skb->mark = sk->sk_mark;
 
+	ecnt_packet_snd_inline_hook(sk,skb,RECEIVE_OR_SEND,FOEINFORECOVER);
+	
 	packet_pick_tx_queue(dev, skb);
 
 	if (po->has_vnet_hdr) {
@@ -2883,6 +2898,8 @@ static int packet_recvmsg(struct kiocb *iocb, struct socket *sock,
 
 	if (skb == NULL)
 		goto out;
+
+	ecnt_packet_recvmsg_inline_hook(sk,skb,RECEIVE_OR_SEND,FOEINFOSTORE);
 
 	if (pkt_sk(sk)->has_vnet_hdr) {
 		struct virtio_net_hdr vnet_hdr = { 0 };
@@ -3390,7 +3407,17 @@ packet_setsockopt(struct socket *sock, int level, int optname, char __user *optv
 		return 0;
 	}
 	default:
+	{
+		int ret; 
+		ret = ecnt_packet_setsockopt_inline_hook(sk, optname, optval, optlen) ;
+		if( ret == ECNT_RETURN )
+			return 0 ;
+		else if ( ret == ECNT_HOOK_ERROR )
+			return -EFAULT;
+		
 		return -ENOPROTOOPT;
+	}
+
 	}
 }
 
@@ -3485,7 +3512,18 @@ static int packet_getsockopt(struct socket *sock, int level, int optname,
 		val = packet_use_direct_xmit(po);
 		break;
 	default:
+	{
+		int ret ;
+		ret = ecnt_packet_getsockopt_inline_hook(sk, optname, optval, optlen, len, lv, data);
+		if(ECNT_RETURN == ret)
+			return 0 ;
+		else if(ECNT_HOOK_ERROR == ret )
+			return -EFAULT ;
+
 		return -ENOPROTOOPT;
+
+	}
+	
 	}
 
 	if (len > lv)

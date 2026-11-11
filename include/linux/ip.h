@@ -20,6 +20,10 @@
 #include <linux/skbuff.h>
 #include <uapi/linux/ip.h>
 
+#ifdef CONFIG_TP_IPV6_PASSTHROUGH
+#define IFF_IP6_BR     0x1000000			/* ipv6 bridge device */
+#endif
+
 static inline struct iphdr *ip_hdr(const struct sk_buff *skb)
 {
 	return (struct iphdr *)skb_network_header(skb);

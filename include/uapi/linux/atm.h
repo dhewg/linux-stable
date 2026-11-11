@@ -129,6 +129,7 @@
 #define ATM_VBR		3
 #define ATM_ABR		4
 #define ATM_ANYCLASS	5		/* compatible with everything */
+#define ATM_nrtVBR		6
 
 #define ATM_MAX_PCR	-1		/* maximum available PCR */
 
@@ -154,6 +155,8 @@ struct atm_trafprm {
 	unsigned int adtf      :10;     /* ACR Decrease Time Factor (10-bit) */
 	unsigned int cdf       :3;      /* Cutoff Decrease Factor (3-bit) */
         unsigned int spare     :9;      /* spare bits */ 
+	int		scr;	 	/* desired SCR in cells per second */
+	int     mbs;        /* maximum burst size (MBS) in cells */ 
 };
 
 struct atm_qos {

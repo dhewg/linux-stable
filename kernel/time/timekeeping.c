@@ -202,8 +202,11 @@ static inline s64 timekeeping_get_ns(struct tk_read_base *tkr)
 	/* calculate the delta since the last update_wall_time: */
 	delta = clocksource_delta(cycle_now, tkr->cycle_last, tkr->mask);
 
-	nsec = delta * tkr->mult + tkr->xtime_nsec;
-	nsec >>= tkr->shift;
+	//2021.6.21 time: Avoid signed overflow in timekeeping_get_ns() HQ反饋VR2100 的自动重启问题, 主要是64位的问题。32位的系统应该没有问题
+	//https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/kernel/time/timekeeping.c?id=35a4933a895927990772ae96fdcfd2f806929ee2
+	//nsec = delta * tkr->mult + tkr->xtime_nsec;
+	//nsec >>= tkr->shift;
+	nsec = (delta * tkr->mult + tkr->xtime_nsec) >> tkr->shift;
 
 	/* If arch requires, add in get_arch_timeoffset() */
 	return nsec + arch_gettimeoffset();

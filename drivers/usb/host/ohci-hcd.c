@@ -1219,6 +1219,11 @@ MODULE_LICENSE ("GPL");
 #define SA1111_DRIVER		ohci_hcd_sa1111_driver
 #endif
 
+#if defined (CONFIG_MIPS_RT63365)
+#include "ohci-rt3xxx.c"
+#define PLATFORM_DRIVER     ohci_hcd_rt3xxx_driver
+#endif
+
 #ifdef CONFIG_USB_OHCI_HCD_DAVINCI
 #include "ohci-da8xx.c"
 #define DAVINCI_PLATFORM_DRIVER	ohci_hcd_da8xx_driver

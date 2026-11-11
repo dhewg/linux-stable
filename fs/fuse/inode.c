@@ -912,7 +912,7 @@ static void process_init_reply(struct fuse_conn *fc, struct fuse_req *req)
 			fc->no_lock = 1;
 			fc->no_flock = 1;
 		}
-
+		fc->big_writes= 1;
 		fc->bdi.ra_pages = min(fc->bdi.ra_pages, ra_pages);
 		fc->minor = arg->minor;
 		fc->max_write = arg->minor < 5 ? 4096 : arg->max_write;

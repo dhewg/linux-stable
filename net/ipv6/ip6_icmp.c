@@ -5,6 +5,7 @@
 #include <linux/spinlock.h>
 
 #include <net/ipv6.h>
+#include "ecnt_net_ipv6.h"
 
 #if IS_ENABLED(CONFIG_IPV6)
 
@@ -35,6 +36,9 @@ void icmpv6_send(struct sk_buff *skb, u8 type, u8 code, __u32 info)
 	ip6_icmp_send_t *send;
 
 	rcu_read_lock();
+	if ( ECNT_RETURN == 
+		ecnt_icmpv6_send_inline_hook(skb, type, code, info) )
+		goto out;
 	send = rcu_dereference(ip6_icmp_send);
 
 	if (!send)

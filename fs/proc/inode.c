@@ -29,6 +29,20 @@
 
 #include "internal.h"
 
+static void __pde_users_dec(struct proc_dir_entry *pde)
+{
+	pde->pde_users--;
+	if (pde->pde_unload_completion && pde->pde_users == 0)
+		complete(pde->pde_unload_completion);
+}
+
+void pde_users_dec(struct proc_dir_entry *pde)
+{
+	spin_lock(&pde->pde_unload_lock);
+	__pde_users_dec(pde);
+	spin_unlock(&pde->pde_unload_lock);
+}
+
 static void proc_evict_inode(struct inode *inode)
 {
 	struct proc_dir_entry *de;

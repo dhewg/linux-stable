@@ -15,6 +15,8 @@
 #include <net/xfrm.h>
 #include <net/ip_tunnels.h>
 #include <net/ip6_tunnel.h>
+#include <ecnt_hook/ecnt_hook_crypto.h>
+
 
 static struct kmem_cache *secpath_cachep __read_mostly;
 
@@ -293,10 +295,14 @@ int xfrm_input(struct sk_buff *skb, int nexthdr, __be32 spi, int encap_type)
 
 		skb_dst_force(skb);
 
-		nexthdr = x->type->input(x, skb);
+        nexthdr = x->type->input(x, skb);
 
-		if (nexthdr == -EINPROGRESS)
-			return 0;
+        if (nexthdr == -EINPROGRESS)
+            return 0;
+
+        if (CRYPTO_API_GET_XFRM_INPUT_RET(ECNT_CRYPTO, nexthdr) == ECNT_RETURN_DROP)
+            goto drop;
+        
 resume:
 		spin_lock(&x->lock);
 		if (nexthdr <= 0) {

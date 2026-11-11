@@ -11,6 +11,35 @@ obj-$(CONFIG_USB_DWC2)		+= dwc2/
 
 obj-$(CONFIG_USB_MON)		+= mon/
 
+ifneq ($(strip $(TCSUPPORT_MUH_TEST)),)
+obj-$(CONFIG_USB_XHCI_HCD)  += host/mtk_test/
+else
+ifneq ($(strip $(TCSUPPORT_CPU_EN7580) $(TCSUPPORT_CPU_EN7528)),)
+ifneq ($(strip $(TCSUPPORT_OPENWRT)),)
+MTK_DR_M3U_HCD = ../usb/host/econet
+else
+MTK_DR_M3U_HCD = ../../../kernel_ext/drivers/usb
+endif
+obj-$(CONFIG_PCI)       += $(MTK_DR_M3U_HCD)/mu3h/
+obj-$(CONFIG_USB_EHCI_HCD)  += $(MTK_DR_M3U_HCD)/mu3h/
+obj-$(CONFIG_USB_ISP116X_HCD)   += $(MTK_DR_M3U_HCD)/mu3h/
+obj-$(CONFIG_USB_OHCI_HCD)  += $(MTK_DR_M3U_HCD)/mu3h/
+obj-$(CONFIG_USB_UHCI_HCD)  += $(MTK_DR_M3U_HCD)/mu3h/
+obj-$(CONFIG_USB_FHCI_HCD)  += $(MTK_DR_M3U_HCD)/mu3h/
+obj-$(CONFIG_USB_XHCI_HCD)  += $(MTK_DR_M3U_HCD)/mu3h/
+obj-$(CONFIG_USB_SL811_HCD) += $(MTK_DR_M3U_HCD)/mu3h/
+obj-$(CONFIG_USB_ISP1362_HCD)   += $(MTK_DR_M3U_HCD)/mu3h/
+obj-$(CONFIG_USB_U132_HCD)  += $(MTK_DR_M3U_HCD)/mu3h/
+obj-$(CONFIG_USB_R8A66597_HCD)  += $(MTK_DR_M3U_HCD)/mu3h/
+obj-$(CONFIG_USB_HWA_HCD)   += $(MTK_DR_M3U_HCD)/mu3h/
+obj-$(CONFIG_USB_ISP1760_HCD)   += $(MTK_DR_M3U_HCD)/mu3h/
+obj-$(CONFIG_USB_IMX21_HCD) += $(MTK_DR_M3U_HCD)/mu3h/
+obj-$(CONFIG_USB_FSL_MPH_DR_OF) += $(MTK_DR_M3U_HCD)/mu3h/
+obj-$(CONFIG_USB_FUSBH200_HCD)  += $(MTK_DR_M3U_HCD)/mu3h/
+obj-$(CONFIG_USB_FOTG210_HCD)   += $(MTK_DR_M3U_HCD)/mu3h/
+obj-$(CONFIG_USB_MAX3421_HCD)   += $(MTK_DR_M3U_HCD)/mu3h/
+obj-$(CONFIG_USB)       += $(MTK_DR_M3U_HCD)/mu3_phy/
+else
 obj-$(CONFIG_PCI)		+= host/
 obj-$(CONFIG_USB_EHCI_HCD)	+= host/
 obj-$(CONFIG_USB_ISP116X_HCD)	+= host/
@@ -29,6 +58,8 @@ obj-$(CONFIG_USB_FSL_MPH_DR_OF)	+= host/
 obj-$(CONFIG_USB_FUSBH200_HCD)	+= host/
 obj-$(CONFIG_USB_FOTG210_HCD)	+= host/
 obj-$(CONFIG_USB_MAX3421_HCD)	+= host/
+endif
+endif
 
 obj-$(CONFIG_USB_C67X00_HCD)	+= c67x00/
 

@@ -175,6 +175,16 @@ struct net_device_stats {
 	unsigned long	tx_window_errors;
 	unsigned long	rx_compressed;
 	unsigned long	tx_compressed;
+#ifdef CONFIG_TP_IMAGE
+    unsigned long   tx_multicast_packets;  /* multicast packets transmitted */
+    unsigned long   rx_multicast_bytes;  /* multicast bytes recieved */
+    unsigned long   tx_multicast_bytes;  /* multicast bytes transmitted */
+    unsigned long   rx_unicast_packets;  /* unicast packets recieved */
+    unsigned long   tx_unicast_packets;  /* unicast packets transmitted */
+    unsigned long   rx_broadcast_packets;  /* broadcast packets recieved */
+    unsigned long   tx_broadcast_packets;  /* broadcast packets transmitted */
+    unsigned long   rx_unknown_packets;  /* unknown protocol packets recieved */
+#endif /* CONFIG_TP_IMAGE */
 };
 
 
@@ -1220,6 +1230,8 @@ enum netdev_priv_flags {
 	IFF_LIVE_ADDR_CHANGE		= 1<<20,
 	IFF_MACVLAN			= 1<<21,
 	IFF_XMIT_DST_RELEASE_PERM	= 1<<22,
+	IFF_RSMUX 			= 1<<23,
+	IFF_OSMUX 			= 1<<24,
 };
 
 #define IFF_802_1Q_VLAN			IFF_802_1Q_VLAN
@@ -1245,6 +1257,8 @@ enum netdev_priv_flags {
 #define IFF_LIVE_ADDR_CHANGE		IFF_LIVE_ADDR_CHANGE
 #define IFF_MACVLAN			IFF_MACVLAN
 #define IFF_XMIT_DST_RELEASE_PERM	IFF_XMIT_DST_RELEASE_PERM
+#define IFF_RSMUX      			IFF_RSMUX             /* pvc interface          */
+#define IFF_OSMUX      			IFF_OSMUX            /* smux interface       */
 
 /**
  *	struct net_device - The DEVICE structure.
@@ -1679,7 +1693,11 @@ struct net_device {
 	const struct rtnl_link_ops *rtnl_link_ops;
 
 	/* for setting kernel sock attribute on TCP connection setup */
+#if defined(TCSUPPORT_CPU_EN7528)
+#define GSO_MAX_SIZE		65500
+#else
 #define GSO_MAX_SIZE		65536
+#endif
 	unsigned int		gso_max_size;
 #define GSO_MAX_SEGS		65535
 	u16			gso_max_segs;
@@ -1701,6 +1719,51 @@ struct net_device {
 	struct lock_class_key *qdisc_tx_busylock;
 	int group;
 	struct pm_qos_request	pm_qos_req;
+	u8	vlan_mode;
+	u16 tci;
+	u16 multicast_tci;
+	u8 ipversion;
+	struct list_head ext_mvlan_list;
+#if defined(TCSUPPORT_CT)
+#ifdef TCSUPPORT_PORTBIND
+#if defined(TCSUPPORT_CT_PORT_BIND)
+		/* 
+		** every bit indicate a group that this interface belongs to
+		** so a interface may belongs to 64 groups at most.
+		*/
+		u32 bind_group[2];
+		/* 
+		** bind index 
+		** for lan interface, it record bind bridge mode wan interface's
+		** ifindex(0~63, user space defined), it equals group id
+		** in routing mode, this value must be 0
+		** for wan interface, it record wan interface's group id
+		*/
+		int bind_index;
+		/* 
+		** every bit indicate a type that this interface belongs to, 
+		** there are six kinds of type:
+		** IF_TYPE_WAN_ROUTE
+		** IF_TYPE_WAN_BRIDE
+		** IF_TYPE_LAN
+		** IF_TYPE_INTERNET
+		** IF_TYPE_OTHER
+		*/
+		u8	bind_type;
+#else
+		/* 
+		** every bit indicate a group that this interface belongs to
+		** so a interface may belongs to 16 groups at most.
+		*/
+		u16 bind_group;
+#endif
+#else
+		u32 bind_group[2];
+		int bind_index;
+		u8	bind_type;
+#endif
+#endif
+
 };
 #define to_net_dev(d) container_of(d, struct net_device, dev)
 
@@ -2004,6 +2067,11 @@ struct pcpu_sw_netstats {
 #define NETDEV_RESEND_IGMP	0x0016
 #define NETDEV_PRECHANGEMTU	0x0017 /* notify before mtu change happened */
 #define NETDEV_CHANGEINFODATA	0x0018
+/*add by liaoyilu 2020-12-11, for hyfi-bridge*/
+#ifdef CONFIG_HYFI_BRIDGE 
+#define NETDEV_BR_JOIN		0x001B
+#define NETDEV_BR_LEAVE		0x001C
+#endif /*CONFIG_HYFI_BRIDGE*/
 
 int register_netdevice_notifier(struct notifier_block *nb);
 int unregister_netdevice_notifier(struct notifier_block *nb);
@@ -3564,7 +3632,7 @@ netdev_features_t netif_skb_features(struct sk_buff *skb);
 
 static inline bool net_gso_ok(netdev_features_t features, int gso_type)
 {
-	netdev_features_t feature = gso_type << NETIF_F_GSO_SHIFT;
+	netdev_features_t feature = (netdev_features_t)gso_type << NETIF_F_GSO_SHIFT;
 
 	/* check flags correspondence */
 	BUILD_BUG_ON(SKB_GSO_TCPV4   != (NETIF_F_TSO >> NETIF_F_GSO_SHIFT));

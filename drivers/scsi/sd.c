@@ -312,7 +312,7 @@ protection_type_store(struct device *dev, struct device_attribute *attr,
 	if (err)
 		return err;
 
-	if (val >= 0 && val <= SD_DIF_TYPE3_PROTECTION)
+	if (val <= SD_DIF_TYPE3_PROTECTION)
 		sdkp->protection_type = val;
 
 	return count;
@@ -2945,6 +2945,7 @@ static void sd_probe_async(void *data, async_cookie_t cookie)
 		  sdp->removable ? "removable " : "");
 	scsi_autopm_put_device(sdp);
 	put_device(&sdkp->dev);
+	send_signal_to_app(SIGUSR1);
 }
 
 /**
@@ -3087,7 +3088,7 @@ static int sd_remove(struct device *dev)
 	dev_set_drvdata(dev, NULL);
 	put_device(&sdkp->dev);
 	mutex_unlock(&sd_ref_mutex);
-
+	send_signal_to_app(SIGUSR2);
 	return 0;
 }
 
@@ -3250,6 +3251,7 @@ static int __init init_sd(void)
 {
 	int majors = 0, i, err;
 
+	init_auto_mount();
 	SCSI_LOG_HLQUEUE(3, printk("init_sd: sd driver entry point\n"));
 
 	for (i = 0; i < SD_MAJORS; i++) {

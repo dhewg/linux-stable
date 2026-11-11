@@ -72,11 +72,25 @@ ebt_vlan_mt(const struct sk_buff *skb, struct xt_action_param *par)
 
 	/* Checking VLAN Identifier (VID) */
 	if (GET_BITMASK(EBT_VLAN_ID))
+#if !defined(TCSUPPORT_ORN_EBTABLES)
+	{
+		if (FWINV(id < info->id[0] || id > info->id[1], EBT_VLAN_ID))		
+			return false;
+	}
+#else
 		EXIT_ON_MISMATCH(id, EBT_VLAN_ID);
+#endif
 
 	/* Checking user_priority */
 	if (GET_BITMASK(EBT_VLAN_PRIO))
+#if !defined(TCSUPPORT_ORN_EBTABLES)
+	{
+		if (FWINV(prio < info->prio[0] || prio > info->prio[1], EBT_VLAN_PRIO))	
+			return false;
+	}
+#else
 		EXIT_ON_MISMATCH(prio, EBT_VLAN_PRIO);
+#endif
 
 	/* Checking Encapsulated Proto (Length/Type) field */
 	if (GET_BITMASK(EBT_VLAN_ENCAP))
@@ -119,6 +133,15 @@ static int ebt_vlan_mt_check(const struct xt_mtchk_param *par)
 	 * 0x0FFF - Reserved for implementation use.
 	 * if_vlan.h: VLAN_N_VID 4096. */
 	if (GET_BITMASK(EBT_VLAN_ID)) {
+#if !defined(TCSUPPORT_ORN_EBTABLES)
+		if((info->id[0] !=0) || (info->id[1] != 0)){ /* if id!=0 => check vid range */
+			if((info->id[0] > VLAN_N_VID) || (info->id[1] > VLAN_N_VID)
+					|| (info->id[0] > info->id[1])){
+				pr_debug("Vlan id  is out of range (1-4096)\n");
+				return -EINVAL;
+			}
+		}
+#else
 		if (!!info->id) { /* if id!=0 => check vid range */
 			if (info->id > VLAN_N_VID) {
 				pr_debug("id %d is out of range (1-4096)\n",
@@ -132,14 +155,23 @@ static int ebt_vlan_mt_check(const struct xt_mtchk_param *par)
 			info->bitmask &= ~EBT_VLAN_PRIO;
 		}
 		/* Else, id=0 (null VLAN ID)  => user_priority range (any?) */
+#endif
 	}
 
 	if (GET_BITMASK(EBT_VLAN_PRIO)) {
+#if !defined(TCSUPPORT_ORN_EBTABLES)
+		if ((info->prio[0] > 7) || (info->prio[1] > 7)
+			|| (info->prio[0] > info->prio[1])){
+			pr_debug("prio is out of range!!\n");
+			return -EINVAL;
+		}
+#else
 		if ((unsigned char) info->prio > 7) {
 			pr_debug("prio %d is out of range (0-7)\n",
 				 info->prio);
 			return -EINVAL;
 		}
+#endif
 	}
 	/* Check for encapsulated proto range - it is possible to be
 	 * any value for u_short range.

@@ -33,6 +33,14 @@ static void xhci_plat_quirks(struct device *dev, struct xhci_hcd *xhci)
 	 * dev struct in order to setup MSI
 	 */
 	xhci->quirks |= XHCI_PLAT;
+#if defined (CONFIG_USB_EN7512_XHCI_HCD)
+	/* MTK host controller gives a spurious successful event after a 
+	 * short transfer. Ignore it.
+	 */
+	xhci->quirks |= XHCI_MTK_HOST;
+	xhci->quirks |= XHCI_SPURIOUS_SUCCESS;
+	xhci->quirks |= XHCI_LPM_SUPPORT;
+#endif
 }
 
 /* called during probe() after chip reset completes */
@@ -79,13 +87,19 @@ static int xhci_plat_probe(struct platform_device *pdev)
 
 	driver = &xhci_plat_hc_driver;
 
+#if defined (CONFIG_USB_EN7512_XHCI_HCD)
+	irq = XHC_IRQ;
+#else
 	irq = platform_get_irq(pdev, 0);
+#endif
 	if (irq < 0)
 		return -ENODEV;
 
+#if !defined (CONFIG_USB_EN7512_XHCI_HCD)
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	if (!res)
 		return -ENODEV;
+#endif
 
 	/* Initialize dma_mask and coherent_dma_mask to 32-bits */
 	ret = dma_set_coherent_mask(&pdev->dev, DMA_BIT_MASK(32));
@@ -100,6 +114,18 @@ static int xhci_plat_probe(struct platform_device *pdev)
 	if (!hcd)
 		return -ENOMEM;
 
+#if defined (CONFIG_USB_EN7512_XHCI_HCD)
+	hcd->rsrc_start = (uint32_t)XHC_IO_START;
+	hcd->rsrc_len = XHC_IO_LENGTH;
+	if (!request_mem_region(hcd->rsrc_start, hcd->rsrc_len,
+		driver->description)) {
+		dev_dbg(&pdev->dev, "controller already in use\n");
+		ret = -EBUSY;
+		goto put_hcd;
+	}
+
+	hcd->regs = ioremap(hcd->rsrc_start, hcd->rsrc_len);
+#else
 	hcd->rsrc_start = res->start;
 	hcd->rsrc_len = resource_size(res);
 
@@ -108,6 +134,7 @@ static int xhci_plat_probe(struct platform_device *pdev)
 		ret = PTR_ERR(hcd->regs);
 		goto put_hcd;
 	}
+#endif
 
 	/*
 	 * Not all platforms have a clk so it is not an error if the
@@ -185,6 +212,9 @@ static int xhci_plat_remove(struct platform_device *dev)
 	struct usb_hcd	*hcd = platform_get_drvdata(dev);
 	struct xhci_hcd	*xhci = hcd_to_xhci(hcd);
 	struct clk *clk = xhci->clk;
+
+	if ((xhci->quirks & XHCI_MTK_HOST) && (xhci->quirks & XHCI_COMP_MODE_QUIRK))
+		del_timer_sync(&xhci->comp_mode_recovery_timer);
 
 	usb_remove_hcd(xhci->shared_hcd);
 	usb_put_hcd(xhci->shared_hcd);

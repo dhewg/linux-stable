@@ -27,6 +27,7 @@
 #include <asm/ptrace.h>
 #include <asm/highmem.h>		/* For VMALLOC_END */
 #include <linux/kdebug.h>
+#include "ecnt_arch_mips_mm.h"
 
 /*
  * This routine handles page faults.  It determines the address,
@@ -232,6 +233,7 @@ no_context:
 	 * terminate things with extreme prejudice.
 	 */
 	bust_spinlocks(1);
+	ecnt_set_panic_log_flag_hook(1);
 
 	printk(KERN_ALERT "CPU %d Unable to handle kernel paging request at "
 	       "virtual address %0*lx, epc == %0*lx, ra == %0*lx\n",

@@ -33,7 +33,7 @@
 #include <linux/netdev_features.h>
 #include <linux/sched.h>
 #include <net/flow_keys.h>
-
+#include <linux/ecnt_skbuff.h>
 /* A. Checksumming of received packets by device.
  *
  * CHECKSUM_NONE:
@@ -152,6 +152,7 @@ struct pipe_inode_info;
 #if defined(CONFIG_NF_CONNTRACK) || defined(CONFIG_NF_CONNTRACK_MODULE)
 struct nf_conntrack {
 	atomic_t use;
+	__u16	lVlanId;
 };
 #endif
 
@@ -624,11 +625,16 @@ struct sk_buff {
 #ifdef CONFIG_NETWORK_SECMARK
 	__u32			secmark;
 #endif
-	union {
+	/* union { */
+	/* fix bug
+	  * when skb->dropcount be valued, eg: net/core/sock.c sock_queue_rcv_skb()
+	  * it will cause skb->mark miss its original value 
+	  */
 		__u32		mark;
 		__u32		dropcount;
 		__u32		reserved_tailroom;
-	};
+	/* }; */
+    __u32       fe_resource_mark;   /*others: reserved acnt1: xxxxx acnt0:xxxxx  meter:xxxxxx*/
 
 	union {
 		__be16		inner_protocol;
@@ -647,7 +653,114 @@ struct sk_buff {
 	/* private: */
 	__u32			headers_end[0];
 	/* public: */
+#if defined(CONFIG_CPU_TC3162) || defined(CONFIG_MIPS_TC3262)
+	int 			(*skb_recycling_callback)(struct sk_buff *skb);
+	int 			skb_recycling_ind;
+#endif
+#if defined(TCSUPPORT_RA_HWNAT)
+	char foe[8];
+	__u8 smac[6];	/* restore rx smac address */
+#endif
+#define BRIDGE_INTERFACE	1
+#define ROUTE_INTERFACE		2
+	__u8			bridge_flag;
+    u32 adapterAddr; /* for crypto's private adapter address */
+	__u8	ipsec_pt_flag;
+    union{
+        struct{
+            __u16 gem_type : 1 ; // 0:unicast, 1:multicast
+            __u16 gem_port :12 ; // gpon mapping gem port id
+            __u16 : 3 ;
+        };
 
+        struct{
+            __u8 epon_queue ;
+            __u8 epon_pbit  ;
+        };
+        
+        __u16 xpon_raw_info ;
+    };
+	__u32 pon_mark ;   //upstream use for tse/tsid, downstream use for gpon ds mapping pkt_from_wan/pkt_down_mapping_flag/down queue id.
+	__u8 v_if ;		//virtual interface. (GPON MAC bridge or EPON LLID)
+	__u32 pon_vlan_flag;
+	struct net_device * original_dev;
+#if defined(TCSUPPORT_PON_MAC_FILTER)
+	__u32 pon_mac_filter_flag;
+#endif
+#if defined(TCSUPPORT_VLAN_TAG) || defined(TCSUPPORT_CT_VLAN_TAG)
+	__u16 vlan_tags[2];
+#endif	
+	__u32 vlan_tag_flag;
+	__u16 pon_vlan_tpid[4];//index = 0 mean inner tag,4 mean outer tag
+	__u16 pon_vlan_tci[4];
+	__u8	 pon_tag_num;
+#if !defined(TCSUPPORT_FH_ENV)
+	__u32	xpon_igmp_flag;
+#endif
+	/* TCSUPPORT_VLAN_ACCESS_TRUNK start */
+	struct net_device   *wan_dev;
+	/* TCSUPPORT_VLAN_ACCESS_TRUNK end */
+	struct net_device	*orig_dev;
+#ifdef TCSUPPORT_PORTBIND
+#if defined(TCSUPPORT_CT)
+	__u32		portbind_mark;
+#else
+	#define MASK_ORIGIN_DEV   		0x1 	/* flag for port bind set origin dev name */
+	#define MASK_OUT_DEV   			0x2 	/* flag for port bind set origin dev name */
+	#define	IFNAMSIZ				16
+	__u32		portbind_mark;
+	char		orig_dev_name[IFNAMSIZ];
+#endif
+#endif
+#define PON_CLASSIFICATION_REMARK	(1<<16)
+/*#if defined(TCSUPPORT_PON_VLAN) || defined(TCSUPPORT_PON_MAC_FILTER) || (defined(TCSUPPORT_GPON_MAPPING) && defined(TCSUPPORT_GPON_DOWNSTREAM_MAPPING))*/
+		__u8 ppe_info_flag;
+		__u16 ppe_magic;
+		__u8 ppe_ai;
+		__u16 ppe_foe_entry;
+/*#endif*/
+
+	__u16	lan_vlan_tci;		// store the tci of pkt from lan port
+	__u8	lan_vlan_tci_valid; // indicate whether the above "lan_vlan_tci"field is valid
+
+	/*TCSUPPORT_DLF_CTRL start*/
+	__u16	dlf_resv0; /*stroe special tag*/
+	__u32	dlf_resv1; /*store vlan1,vlan2*/
+	__u8	dlf_resv2; /*store vpm and vlan layer*/
+	/*TCSUPPORT_DLF_CTRL end*/
+
+#if defined(TCSUPPORT_CT_SWQOS) || defined(TCSUPPORT_XPON_HAL_API_QOS) || defined(TCSUPPORT_XPON_HAL_API_EXT)
+		__u8 qosEnque;	/*0:enqueu flag, 1: from hw_nat flag for PON, 4-7: qos queue index for PON*/
+#endif
+	__u8 macEnque;
+
+/* TCSUPPORT_SWNAT */
+	int hash_index;
+	__u8 sw_nat_flag;
+	__u8 foe_tbl_index;
+	__u8 igmp_leave_drop_flag;
+/* TCSUPPORT_SWNAT end */
+	
+#if defined(TCSUPPORT_CPU_EN7516) || defined(TCSUPPORT_CPU_EN7527) ||  defined(TCSUPPORT_CPU_EN7580) 
+#define TSO_ENABLE_MARK	0x1
+	__u8 tso_mark;
+#endif
+	__u8 smbd_on_speed; /* 1: pkt from samba shortcut */
+
+	/*
+	bit0-bit3  :  queue mapping index
+	bit4-bit10:  dscp remark
+	*/
+	__u32		mark2;
+	ecnt_sk_buff_t		ecnt_sk_buff; 
+
+
+#ifdef TCSUPPORT_WLAN_SW_RPS
+		void * pAd;
+		__u8 rxBlk[150];//size 150 should larger than sizeof(RX_BLK) in wifi driver
+#endif
+
+	__u32 ecnt_asym_mark;
 	/* These elements must be at the end, see alloc_skb() for details.  */
 	sk_buff_data_t		tail;
 	sk_buff_data_t		end;
@@ -3113,6 +3226,109 @@ static inline void nf_reset_trace(struct sk_buff *skb)
 #endif
 }
 
+static inline void ecnt_nf_copy(struct sk_buff *dst, const struct sk_buff *src,
+			     bool copy)
+{
+#if defined(TCSUPPORT_RA_HWNAT)
+	if (ra_sw_nat_hook_xfer)
+		ra_sw_nat_hook_xfer(dst, src);
+#endif	
+
+#ifdef TCSUPPORT_VLAN_ACCESS_TRUNK
+	dst->wan_dev = src->wan_dev;
+#endif
+#if defined(TCSUPPORT_CT)
+#ifdef TCSUPPORT_PORTBIND//CONFIG_PORT_BINDING
+	dst->portbind_mark = src->portbind_mark;
+	//memcpy(dst->orig_dev_name, src->orig_dev_name, IFNAMSIZ);
+	//dst->orig_if = src->orig_if;
+	dst->orig_dev = src->orig_dev;
+#endif
+#else
+#ifdef TCSUPPORT_PORTBIND /*CONFIG_PORT_BINDING*/
+	dst->portbind_mark = src->portbind_mark;
+	memcpy(dst->orig_dev_name, src->orig_dev_name, IFNAMSIZ);
+#endif
+#endif
+#if defined(TCSUPPORT_VLAN_TAG) || defined(TCSUPPORT_CT_VLAN_TAG)
+	dst->vlan_tags[0] = src->vlan_tags[0];
+	dst->vlan_tags[1] = src->vlan_tags[1];
+	dst->vlan_tag_flag = src->vlan_tag_flag;
+#endif
+#ifdef TCSUPPORT_PON_VLAN
+	dst->pon_vlan_tpid[0] = src->pon_vlan_tpid[0];
+	dst->pon_vlan_tpid[1] = src->pon_vlan_tpid[1];
+	dst->pon_vlan_tpid[2] = src->pon_vlan_tpid[2];
+	dst->pon_vlan_tpid[3] = src->pon_vlan_tpid[3];
+	
+	dst->pon_vlan_tci[0] = src->pon_vlan_tci[0];
+	dst->pon_vlan_tci[1] = src->pon_vlan_tci[1];
+	dst->pon_vlan_tci[2] = src->pon_vlan_tci[2];
+	dst->pon_vlan_tci[3] = src->pon_vlan_tci[3];
+
+	dst->pon_tag_num = src->pon_tag_num;
+	dst->pon_vlan_flag = src->pon_vlan_flag;
+#endif
+    dst->original_dev = src->original_dev;
+
+#ifdef TCSUPPORT_XPON_IGMP_CHT
+	dst->xpon_igmp_flag = src->xpon_igmp_flag;
+#endif
+
+#ifdef TCSUPPORT_PON_MAC_FILTER
+	dst->pon_mac_filter_flag = src->pon_mac_filter_flag;
+#endif
+#if defined(TCSUPPORT_PON_VLAN) || defined(TCSUPPORT_PON_MAC_FILTER) || (defined(TCSUPPORT_GPON_MAPPING) && defined(TCSUPPORT_GPON_DOWNSTREAM_MAPPING))
+	dst->ppe_info_flag = src->ppe_info_flag;
+	dst->ppe_magic = src->ppe_magic;
+	dst->ppe_ai = src->ppe_ai;
+	dst->ppe_foe_entry = src->ppe_foe_entry;
+#endif
+#if (defined(TCSUPPORT_WAN_GPON) || defined (TCSUPPORT_WAN_EPON))
+	dst->xpon_raw_info = src->xpon_raw_info;
+	dst->pon_mark = src->pon_mark;
+	dst->v_if = src->v_if;
+#endif
+
+#if defined(TCSUPPORT_UPSTREAM_VLAN_POLICER)
+        dst->up_strm_policer_flag = src->up_strm_policer_flag;
+        dst->up_strm_policer_trtcm_id = src->up_strm_policer_trtcm_id;
+#endif // #if defined(TCSUPPORT_UPSTREAM_VLAN_POLICER)
+
+#if defined(TCSUPPORT_LAN_VLAN) || defined(TCSUPPORT_LAN_VLAN_RANGE) || defined(TCSUPPORT_CMCC) || defined(TCSUPPORT_CT_CONGW_CH)
+        dst->lan_vlan_tci = src->lan_vlan_tci;
+        dst->lan_vlan_tci_valid = src->lan_vlan_tci_valid;
+#endif
+#if defined(TCSUPPORT_CT_SWQOS)
+	dst->qosEnque = src->qosEnque;	/*0:enqueu flag, 1: from hw_nat flag for PON, 4-7: qos queue index for PON*/
+#endif
+#if defined(TCSUPPORT_RA_HWNAT)
+		dst->bridge_flag = src->bridge_flag;
+#endif
+#if defined(TCSUPPORT_DLF_CTRL)
+	dst->dlf_resv0 = src->dlf_resv0;
+	dst->dlf_resv1 = src->dlf_resv1;
+	dst->dlf_resv2 = src->dlf_resv2;
+#endif
+#if defined(TCSUPPORT_TSO_ENABLE)
+	dst->tso_mark  = src->tso_mark;
+#endif
+	dst->mark2 = src->mark2;
+	dst->smbd_on_speed = src->smbd_on_speed;
+
+	dst->adapterAddr = src->adapterAddr;
+	dst->ipsec_pt_flag = src->ipsec_pt_flag;
+	dst->hash_index = src->hash_index;
+	dst->sw_nat_flag = src->sw_nat_flag;
+	dst->foe_tbl_index = src->foe_tbl_index;
+	dst->igmp_leave_drop_flag = src->igmp_leave_drop_flag;
+	memcpy(&dst->ecnt_sk_buff, &src->ecnt_sk_buff, sizeof(ecnt_sk_buff_t));
+
+#ifdef TCSUPPORT_ASYM_VOD
+	dst->ecnt_asym_mark = src->ecnt_asym_mark;
+#endif
+}
+
 /* Note: This doesn't put any conntrack and bridge info in dst. */
 static inline void __nf_copy(struct sk_buff *dst, const struct sk_buff *src,
 			     bool copy)
@@ -3131,6 +3347,7 @@ static inline void __nf_copy(struct sk_buff *dst, const struct sk_buff *src,
 	if (copy)
 		dst->nf_trace = src->nf_trace;
 #endif
+	ecnt_nf_copy(dst,src,copy);
 }
 
 static inline void nf_copy(struct sk_buff *dst, const struct sk_buff *src)
@@ -3360,5 +3577,59 @@ static inline unsigned int skb_gso_network_seglen(const struct sk_buff *skb)
 			       skb_network_header(skb);
 	return hdr_len + skb_gso_transport_seglen(skb);
 }
+
+#if defined(TCSUPPORT_MAX_PACKET_2000) 
+#define SKBMGR_RX_BUF_LEN 				2048
+#else
+#define SKBMGR_RX_BUF_LEN 				SKB_WITH_OVERHEAD(2048)
+#endif
+//use for wifi driver, size 3840 is accord to wifi driver RX_BUFFER_AGGRESIZE.
+#if defined(TCSUPPORT_MBUF_ENHANCE)
+#define SKBMGR_4K_RX_BUF_LEN 			SKB_WITH_OVERHEAD(2048) //SKB_WITH_OVERHEAD(4096)
+#else
+#define SKBMGR_4K_RX_BUF_LEN 			SKB_WITH_OVERHEAD(4352)
+#endif
+
+#if defined(CONFIG_CPU_TC3162) || defined(CONFIG_MIPS_TC3262)
+struct sk_buff *skbmgr_alloc_skb2k(void);
+int skbmgr_recycling_callback(struct sk_buff *skb);
+
+static inline struct sk_buff *skbmgr_dev_alloc_skb2k(void)
+{
+	struct sk_buff *skb = skbmgr_alloc_skb2k();
+	if (likely(skb))
+		skb_reserve(skb, NET_SKB_PAD);
+	return skb;
+}
+
+#if defined(TCSUPPORT_LRO_ENABLE)
+
+#define SKBMGR_LRO_RX_BUF_LEN 			SKB_WITH_OVERHEAD(46000)
+
+__IMEM struct sk_buff *skbmgr_alloc_skb_lro(void);
+__IMEM int skbmgr_lro_recycling_callback(struct sk_buff *skb);
+
+static inline struct sk_buff *skbmgr_dev_alloc_skb_lro(void)
+{
+	struct sk_buff *skb = skbmgr_alloc_skb_lro();
+	if (likely(skb))
+		skb_reserve(skb, NET_SKB_PAD);
+	return skb;
+}
+#endif
+
+struct sk_buff *skbmgr_alloc_skb4k(void);
+
+int skbmgr_4k_recycling_callback(struct sk_buff *skb);
+
+static inline struct sk_buff *skbmgr_dev_alloc_skb4k(void)
+{
+	struct sk_buff *skb = skbmgr_alloc_skb4k();
+	if (likely(skb))
+		skb_reserve(skb, NET_SKB_PAD);
+	return skb;
+}
+#endif
+
 #endif	/* __KERNEL__ */
 #endif	/* _LINUX_SKBUFF_H */

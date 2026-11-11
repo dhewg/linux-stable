@@ -1701,7 +1701,15 @@ static int ip_route_input_slow(struct sk_buff *skb, __be32 daddr, __be32 saddr,
 	 */
 	fl4.flowi4_oif = 0;
 	fl4.flowi4_iif = dev->ifindex;
+/* add for LAN/WAN binding 20190926 --HSW */
+/* Modified By Shangguan Weijie, 2017-07-30. */
+/* for LAN/WAN binding */
+#if defined(CONFIG_TP_IMAGE) && defined(INCLUDE_TP_MARK)
+	fl4.flowi4_mark = skb->mark2;
+#else /* defined(CONFIG_TP_IMAGE) && defined(INCLUDE_TP_MARK) */
 	fl4.flowi4_mark = skb->mark;
+#endif /* defined(CONFIG_TP_IMAGE) && defined(INCLUDE_TP_MARK) */
+/* End Modify. */
 	fl4.flowi4_tos = tos;
 	fl4.flowi4_scope = RT_SCOPE_UNIVERSE;
 	fl4.daddr = daddr;
@@ -2011,6 +2019,7 @@ struct rtable *__ip_route_output_key(struct net *net, struct flowi4 *fl4)
 	struct rtable *rth;
 	int orig_oif;
 
+	memset(&res, 0, sizeof(res));
 	res.tclassid	= 0;
 	res.fi		= NULL;
 	res.table	= NULL;

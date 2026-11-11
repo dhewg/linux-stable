@@ -27,14 +27,22 @@ obj-$(CONFIG_BRIDGE_EBT_MARK) += ebt_mark_m.o
 obj-$(CONFIG_BRIDGE_EBT_PKTTYPE) += ebt_pkttype.o
 obj-$(CONFIG_BRIDGE_EBT_STP) += ebt_stp.o
 obj-$(CONFIG_BRIDGE_EBT_VLAN) += ebt_vlan.o
+obj-$(CONFIG_BRIDGE_EBT_IEEE1905) += ebt_ieee1905.o
 
 # targets
 obj-$(CONFIG_BRIDGE_EBT_ARPREPLY) += ebt_arpreply.o
 obj-$(CONFIG_BRIDGE_EBT_MARK_T) += ebt_mark.o
+# add for LAN/WAN binding 20190926 --HSW
+ifneq ($(strip $(CONFIG_TP_IMAGE)),)
+obj-$(CONFIG_BRIDGE_EBT_MARK_T) += ebt_tpmark.o
+endif
 obj-$(CONFIG_BRIDGE_EBT_DNAT) += ebt_dnat.o
 obj-$(CONFIG_BRIDGE_EBT_REDIRECT) += ebt_redirect.o
 obj-$(CONFIG_BRIDGE_EBT_SNAT) += ebt_snat.o
+obj-$(CONFIG_BRIDGE_EBT_FTOS) += ebt_ftos.o
+obj-$(CONFIG_BRIDGE_EBT_TC) += ebt_tc.o
 
 # watchers
 obj-$(CONFIG_BRIDGE_EBT_LOG) += ebt_log.o
+obj-$(CONFIG_BRIDGE_EBT_ULOG) += ebt_ulog.o
 obj-$(CONFIG_BRIDGE_EBT_NFLOG) += ebt_nflog.o

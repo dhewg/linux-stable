@@ -225,6 +225,13 @@ void kernel_restart(char *cmd)
 }
 EXPORT_SYMBOL_GPL(kernel_restart);
 
+void TP_kernel_restart(char *cmd)
+{
+	pr_emerg("TP kernel restart!!!!\n");
+	machine_restart(cmd);
+}
+EXPORT_SYMBOL_GPL(TP_kernel_restart);
+
 static void kernel_shutdown_prepare(enum system_states state)
 {
 	blocking_notifier_call_chain(&reboot_notifier_list,

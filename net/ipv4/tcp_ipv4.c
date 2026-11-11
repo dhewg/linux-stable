@@ -84,6 +84,7 @@
 
 #include <linux/crypto.h>
 #include <linux/scatterlist.h>
+#include "ecnt_net_ipv4.h"
 
 int sysctl_tcp_tw_reuse __read_mostly;
 int sysctl_tcp_low_latency __read_mostly;
@@ -557,6 +558,10 @@ void __tcp_v4_send_check(struct sk_buff *skb, __be32 saddr, __be32 daddr)
 void tcp_v4_send_check(struct sock *sk, struct sk_buff *skb)
 {
 	const struct inet_sock *inet = inet_sk(sk);
+	
+#if defined(TCSUPPORT_TSO_ENABLE)
+	ecnt_tcp_v4_send_check_inline_hook(skb, inet->inet_saddr, inet->inet_daddr);
+#endif
 
 	__tcp_v4_send_check(skb, inet->inet_saddr, inet->inet_daddr);
 }
@@ -1635,6 +1640,8 @@ int tcp_v4_rcv(struct sk_buff *skb)
 	TCP_SKB_CB(skb)->sacked	 = 0;
 
 	sk = __inet_lookup_skb(&tcp_hashinfo, skb, th->source, th->dest);
+	if ( ECNT_RETURN_DROP == ecnt_tcp_v4_rcv_inline_hook(sk, skb, net, iph, th) )
+		goto discard_it;
 	if (!sk)
 		goto no_tcp_socket;
 

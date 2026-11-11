@@ -15,6 +15,9 @@
 #include <linux/threads.h>
 
 #include <irq.h>
+/* TCSUPPORT_MIPS_1004K */
+#include <asm/tc3162/tc3162.h>
+/* end of TCSUPPORT_MIPS_1004K */
 
 #undef	GICISBYTELITTLEENDIAN
 
@@ -318,6 +321,9 @@ struct gic_intr_map {
 	unsigned int polarity;	/* Polarity : +/-	*/
 	unsigned int trigtype;	/* Trigger  : Edge/Levl */
 	unsigned int flags;	/* Misc flags	*/
+#ifdef TCSUPPORT_MIPS_1004K
+    unsigned char *name;
+#endif
 #define GIC_FLAG_TRANSPARENT   0x01
 };
 
@@ -340,15 +346,24 @@ struct gic_shared_intr_map {
 #define GIC_CPU_INT4		4 /* .		      */
 #define GIC_CPU_INT5		5 /* Core Interrupt 7 */
 
-/* Local GIC interrupts. */
 #define GIC_INT_TMR		(GIC_CPU_INT5)
 #define GIC_INT_PERFCTR		(GIC_CPU_INT5)
 
+/* Local GIC interrupts. */
+#ifdef TCSUPPORT_MIPS_1004K
+/* Mapped interrupt to pin X, then GIC will generate the vector (X+1). */
+#define GIC_PIN_TO_VEC_OFFSET	(1)
+
+/* define  GIC_CPU_TO_VEC_OFFSET as GIC_PIN_TO_VEC_OFFSET, so that pin_offset in irq-gic.c can be 0 */
+#define GIC_CPU_TO_VEC_OFFSET	(GIC_PIN_TO_VEC_OFFSET)
+
+#else
 /* Add 2 to convert non-EIC hardware interrupt to EIC vector number. */
 #define GIC_CPU_TO_VEC_OFFSET	(2)
 
 /* Mapped interrupt to pin X, then GIC will generate the vector (X+1). */
 #define GIC_PIN_TO_VEC_OFFSET	(1)
+#endif
 
 #include <linux/clocksource.h>
 #include <linux/irq.h>

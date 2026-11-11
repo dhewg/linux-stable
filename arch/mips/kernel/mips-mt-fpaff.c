@@ -73,6 +73,27 @@ asmlinkage long mipsmt_sys_sched_setaffinity(pid_t pid, unsigned int len,
 	if (copy_from_user(&new_mask, user_mask_ptr, sizeof(new_mask)))
 		return -EFAULT;
 
+#ifndef TCSUPPORT_MIPS_1004K /* for 34K CPU only */
+#ifdef CONFIG_MIPS_MT_SMP
+	printk("\r\n\r\n%s new_mask origin value is %08x\r\n\r\n", __FUNCTION__, *new_mask);
+	if(*(unsigned long *)new_mask == 0x8)
+	{
+		*(unsigned long *)new_mask = 0x2;
+	}
+	else if(*(unsigned long *)new_mask == 0xf)
+	{
+		*(unsigned long *)new_mask = 0x3;
+	}
+	else
+	{
+		*(unsigned long *)new_mask = 0x1;
+	}
+	
+	printk("\r\n\r\n%s new_mask changed value is %08x\r\n\r\n", __FUNCTION__, *new_mask);
+#endif
+
+#endif
+
 	get_online_cpus();
 	rcu_read_lock();
 

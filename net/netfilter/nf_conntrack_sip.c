@@ -25,6 +25,7 @@
 #include <net/netfilter/nf_conntrack_helper.h>
 #include <net/netfilter/nf_conntrack_zones.h>
 #include <linux/netfilter/nf_conntrack_sip.h>
+#include "ecnt_netfilter.h"
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Christian Hentschel <chentschel@arnet.com.ar>");
@@ -47,7 +48,7 @@ module_param(sip_direct_signalling, int, 0600);
 MODULE_PARM_DESC(sip_direct_signalling, "expect incoming calls from registrar "
 					"only (default 1)");
 
-static int sip_direct_media __read_mostly = 1;
+static int sip_direct_media __read_mostly = 0;/*Do not check incoming rtp pkts' src ip*/
 module_param(sip_direct_media, int, 0600);
 MODULE_PARM_DESC(sip_direct_media, "Expect Media streams between signalling "
 				   "endpoints only (default 1)");
@@ -899,10 +900,18 @@ static int set_expected_rtp_rtcp(struct sk_buff *skb, unsigned int protoff,
 		    (!nf_inet_addr_cmp(&exp->saved_addr, &exp->tuple.dst.u3) ||
 		     exp->saved_proto.udp.port != exp->tuple.dst.u.udp.port) &&
 		    ct->status & IPS_NAT_MASK) {
+		    union nf_inet_addr temp_zero_addr = {0};
+		    memset(&temp_zero_addr, 0, sizeof(temp_zero_addr));
+		    if((exp->saved_proto.udp.port == 0) && (nf_inet_addr_cmp(&exp->saved_addr, &temp_zero_addr)))
+		    {
+		    	skip_expect = 1;
+		    }
+		    else{
 			*daddr			= exp->saved_addr;
 			tuple.dst.u3		= exp->saved_addr;
 			tuple.dst.u.udp.port	= exp->saved_proto.udp.port;
 			direct_rtp = 1;
+		    }
 		} else
 #endif
 			skip_expect = 1;
@@ -1495,6 +1504,9 @@ static int sip_help_tcp(struct sk_buff *skb, unsigned int protoff,
 	    ctinfo != IP_CT_ESTABLISHED_REPLY)
 		return NF_ACCEPT;
 
+	if ( ECNT_RETURN == ecnt_nf_conntrack_sip_help_tcp_inline_hook(skb, ct) )
+		return NF_ACCEPT;
+
 	/* No Data ? */
 	th = skb_header_pointer(skb, protoff, sizeof(_tcph), &_tcph);
 	if (th == NULL)
@@ -1572,6 +1584,9 @@ static int sip_help_udp(struct sk_buff *skb, unsigned int protoff,
 	/* No Data ? */
 	dataoff = protoff + sizeof(struct udphdr);
 	if (dataoff >= skb->len)
+		return NF_ACCEPT;
+
+	if ( ECNT_RETURN == ecnt_nf_conntrack_sip_help_udp_inline_hook(skb, ct) )
 		return NF_ACCEPT;
 
 	nf_ct_refresh(ct, skb, sip_timeout * HZ);

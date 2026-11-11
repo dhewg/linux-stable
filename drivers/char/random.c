@@ -898,7 +898,12 @@ void add_interrupt_randomness(int irq, int irq_flags)
 	add_interrupt_bench(cycles);
 
 	if ((fast_pool->count < 64) &&
-	    !time_after(now, fast_pool->last + HZ))
+	    !time_after(now, fast_pool->last + HZ)
+//跳过random pool 初始化时接受中断的间隔时间，加快其初始化进程，防止生成rsa key时因为该池未初始化而造成较长时间等待
+#ifdef CONFIG_TP_IMAGE
+	    && nonblocking_pool.initialized
+#endif /*CONFIG_TP_IMAGE*/
+		)
 		return;
 
 	r = nonblocking_pool.initialized ? &input_pool : &nonblocking_pool;

@@ -32,7 +32,12 @@ config USB_XHCI_PCI
        default y
 
 config USB_XHCI_PLATFORM
-	tristate
+	bool "xHCI platform"
+	default y
+
+config USB_EN7512_XHCI_HCD
+	bool "ECONET EN7512 xHCI"
+	depends on USB_XHCI_PLATFORM
 
 config USB_XHCI_MVEBU
 	tristate "xHCI support for Marvell Armada 375/38x"

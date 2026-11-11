@@ -6,6 +6,8 @@
 
 #include <linux/gfp.h>
 #include <linux/init.h>
+#include <linux/crypto.h>
+#include <ecnt_hook/ecnt_hook_crypto.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/skbuff.h>
@@ -32,8 +34,11 @@ static int xfrm4_mode_tunnel_output(struct xfrm_state *x, struct sk_buff *skb)
 	struct dst_entry *dst = skb_dst(skb);
 	struct iphdr *top_iph;
 	int flags;
+    int header_len = x->props.header_len;
 
-	skb_set_network_header(skb, -x->props.header_len);
+    CRYPTO_API_GET_XFRM_HEADER_LEN(ECNT_CRYPTO, x, &header_len);
+    skb_set_network_header(skb, -header_len);
+
 	skb->mac_header = skb->network_header +
 			  offsetof(struct iphdr, protocol);
 	skb->transport_header = skb->network_header + sizeof(*top_iph);

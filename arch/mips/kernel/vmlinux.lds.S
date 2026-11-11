@@ -1,3 +1,6 @@
+#ifdef L2CACHE_LOCK_CODE
+#include <asm/tc3162/irq.h>
+#endif
 #include <asm/asm-offsets.h>
 #include <asm/thread_info.h>
 
@@ -13,6 +16,10 @@
 
 #undef mips
 #define mips mips
+#if defined(TCSUPPORT_CPU_EN7512) || defined(TCSUPPORT_CPU_EN7521)
+#undef CONFIG_IMEM_SIZE
+#define CONFIG_IMEM_SIZE 65536
+#endif
 OUTPUT_ARCH(mips)
 ENTRY(kernel_entry)
 PHDRS {
@@ -60,7 +67,31 @@ SECTIONS
 		*(.fixup)
 		*(.gnu.warning)
 	} :text = 0
+
+#ifdef CONFIG_TC3162_IMEM
+#ifdef CONFIG_CPU_TC3162
+  	. = ALIGN(16384);
+#else
+  	. = ALIGN(32768);
+#endif
+  	__imem = . ;
+  	.imem_text : { *(.imem_text) }
+  	_imem_end = .;
+  	_etext = (__imem + CONFIG_IMEM_SIZE) > . ? (__imem + CONFIG_IMEM_SIZE) : .;
+  	. = _etext;
+#else
+#ifdef L2CACHE_LOCK_CODE
+	. = ALIGN(32);
+  	__l2cmem = . ;
+  	.l2cmem_text : { *(.l2cmem_text) }
+  	. = ALIGN(32);
+  	_l2cmem_end = .;
+  	_etext = (__l2cmem + MAX_L2C_LOCK_SIZE) > . ? (__l2cmem + MAX_L2C_LOCK_SIZE) : .;
+  	. = _etext;
+#else
 	_etext = .;	/* End of text section */
+#endif
+#endif  
 
 	EXCEPTION_TABLE(16)
 

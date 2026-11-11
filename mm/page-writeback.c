@@ -547,13 +547,13 @@ unsigned long bdi_dirty_limit(struct backing_dev_info *bdi, unsigned long dirty)
 	 */
 	bdi_writeout_fraction(bdi, &numerator, &denominator);
 
-	bdi_dirty = (dirty * (100 - bdi_min_ratio)) / 100;
+	bdi_dirty = ((u64)dirty * (100 - bdi_min_ratio)) / 100;
 	bdi_dirty *= numerator;
 	do_div(bdi_dirty, denominator);
 
-	bdi_dirty += (dirty * bdi->min_ratio) / 100;
-	if (bdi_dirty > (dirty * bdi->max_ratio) / 100)
-		bdi_dirty = dirty * bdi->max_ratio / 100;
+	bdi_dirty += ((u64)dirty * bdi->min_ratio) / 100;
+	if (bdi_dirty > ((u64)dirty * bdi->max_ratio) / 100)
+		bdi_dirty = (u64)dirty * bdi->max_ratio / 100;
 
 	return bdi_dirty;
 }

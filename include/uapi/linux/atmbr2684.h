@@ -17,6 +17,8 @@
 
 					/* used only at device creation:  */
 #define BR2684_FLAG_ROUTED	(1<<16)	/* payload is routed, not bridged */
+#define BR2684_FLAG_RELAY_IPOA	(1<<17)	/* payload is routed ipoa, relay to backend as ipoe*/
+#define BR2684_FLAG_RELAY_PPPOA	(1<<18)	/* payload is routed pppoa, relay to backend as pppoe*/
 
 /*
  * Is there FCS inbound on this VC?  This currently isn't supported.

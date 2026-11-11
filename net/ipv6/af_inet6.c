@@ -76,7 +76,11 @@ static DEFINE_SPINLOCK(inetsw6_lock);
 
 struct ipv6_params ipv6_defaults = {
 	.disable_ipv6 = 0,
+#ifdef TCSUPPORT_IPV6_ENHANCEMENT
+			.autoconf = 0,
+#else
 	.autoconf = 1,
+#endif
 };
 
 static int disable_ipv6_mod;

@@ -6,6 +6,10 @@
 #include <linux/if_tunnel.h>
 #include <linux/ip6_tunnel.h>
 
+#ifdef CONFIG_TP_IMAGE
+#include <net/ip6_route.h>
+#endif /* CONFIG_TP_IMAGE */
+
 #define IP6TUNNEL_ERR_TIMEO (30*HZ)
 
 /* capable of sending packets */
@@ -76,7 +80,18 @@ static inline void ip6tunnel_xmit(struct sk_buff *skb, struct net_device *dev)
 	int pkt_len, err;
 
 	pkt_len = skb->len;
+#ifdef CONFIG_TP_IMAGE
+	if (skb->len > ip6_skb_dst_mtu(skb))
+	{
+		err = ip6_fragment(skb, ip6_local_out);
+	}
+	else
+	{
+		err = ip6_local_out(skb);
+	}
+#else
 	err = ip6_local_out(skb);
+#endif /* CONFIG_TP_IMAGE */
 
 	if (net_xmit_eval(err) == 0) {
 		struct pcpu_sw_netstats *tstats = this_cpu_ptr(dev->tstats);

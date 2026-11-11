@@ -66,6 +66,7 @@
 #include <net/netlink.h>
 #include <net/fib_rules.h>
 #include <linux/netconf.h>
+#include "ecnt_net_ipv4.h"
 
 #if defined(CONFIG_IP_PIMSM_V1) || defined(CONFIG_IP_PIMSM_V2)
 #define CONFIG_IP_PIMSM	1
@@ -894,7 +895,11 @@ static struct mfc_cache *ipmr_cache_alloc_unres(void)
 
 	if (c) {
 		skb_queue_head_init(&c->mfc_un.unres.unresolved);
+#ifdef CONFIG_TP_IMAGE
+		c->mfc_un.unres.expires = jiffies + HZ / 2;
+#else /* CONFIG_TP_IMAGE */
 		c->mfc_un.unres.expires = jiffies + 10*HZ;
+#endif /* CONFIG_TP_IMAGE */
 	}
 	return c;
 }
@@ -1012,6 +1017,8 @@ static int ipmr_cache_report(struct mr_table *mrt,
 	}
 
 	/* Deliver to mrouted */
+	
+	ecnt_ipmr_cache_report_inline_hook(mroute_sk, skb, pkt);
 
 	ret = sock_queue_rcv_skb(mroute_sk, skb);
 	rcu_read_unlock();
@@ -1085,7 +1092,11 @@ ipmr_cache_unresolved(struct mr_table *mrt, vifi_t vifi, struct sk_buff *skb)
 
 	/* See if we can append the packet */
 
+#ifdef CONFIG_TP_IMAGE
+	if (1) {
+#else /* CONFIG_TP_IMAGE */
 	if (c->mfc_un.unres.unresolved.qlen > 3) {
+#endif /* CONFIG_TP_IMAGE */
 		kfree_skb(skb);
 		err = -ENOBUFS;
 	} else {
@@ -1868,6 +1879,22 @@ forward:
 	/*
 	 *	Forward the frame
 	 */
+/*Add to fix bug 238242*/
+#define RECOVER_TTL 	(64)
+	if (ip_hdr(skb)->ttl <= 1)
+	{
+		/* prefix match */
+		if (strncmp(skb->dev->name, "br", strlen("br")))
+		{
+
+			ip_hdr(skb)->ttl = RECOVER_TTL; /* set ttl back to 64 */
+
+			/* re calc csum. */
+			ip_hdr(skb)->check = 0;
+			ip_hdr(skb)->check = ip_fast_csum(skb_network_header(skb), ip_hdr(skb)->ihl);
+		}
+	}
+/*Add to fix bug 238242*/
 	if (cache->mfc_origin == htonl(INADDR_ANY) &&
 	    cache->mfc_mcastgrp == htonl(INADDR_ANY)) {
 		if (true_vifi >= 0 &&
@@ -2638,8 +2665,8 @@ static int ipmr_mfc_seq_show(struct seq_file *seq, void *v)
 		const struct mr_table *mrt = it->mrt;
 
 		seq_printf(seq, "%08X %08X %-3hd",
-			   (__force u32) mfc->mfc_mcastgrp,
-			   (__force u32) mfc->mfc_origin,
+			   (__force u32) ntohl(mfc->mfc_mcastgrp),
+			   (__force u32) ntohl(mfc->mfc_origin),
 			   mfc->mfc_parent);
 
 		if (it->cache != &mrt->mfc_unres_queue) {

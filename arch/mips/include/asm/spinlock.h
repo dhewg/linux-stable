@@ -52,7 +52,9 @@ static inline int arch_spin_is_contended(arch_spinlock_t *lock)
 	return (((counters >> 16) - counters) & 0xffff) > 1;
 }
 #define arch_spin_is_contended	arch_spin_is_contended
-
+#ifdef TCSUPPORT_MIPS_SYNCTYPE10
+extern unsigned int sync_type10;
+#endif
 static inline void arch_spin_lock(arch_spinlock_t *lock)
 {
 	int my_ticket;
@@ -127,16 +129,31 @@ static inline void arch_spin_lock(arch_spinlock_t *lock)
 		  [my_ticket] "=&r" (my_ticket)
 		: [inc] "r" (inc));
 	}
-
-	smp_llsc_mb();
+#ifdef TCSUPPORT_MIPS_SYNCTYPE10
+	if(sync_type10 & 0x1)
+		__asm__ __volatile__("sync 0x10" : : :"memory");
+	else
+#endif		
+		smp_llsc_mb();
 }
 
 static inline void arch_spin_unlock(arch_spinlock_t *lock)
 {
 	unsigned int serving_now = lock->h.serving_now + 1;
-	wmb();
+
+#ifdef TCSUPPORT_MIPS_SYNCTYPE10
+	if(sync_type10 & 0x2)
+		__asm__ __volatile__("sync 0x10" : : :"memory");
+	else
+#endif
+		wmb();
 	lock->h.serving_now = (u16)serving_now;
-	nudge_writes();
+#ifdef TCSUPPORT_MIPS_SYNCTYPE10	
+	if(sync_type10 & 0x4)
+		__asm__ __volatile__("sync 0x10" : : :"memory");
+	else
+#endif
+		nudge_writes();
 }
 
 static inline unsigned int arch_spin_trylock(arch_spinlock_t *lock)

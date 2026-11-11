@@ -29,6 +29,59 @@
 #define ULLONG_MAX	(~0ULL)
 #define SIZE_MAX	(~(size_t)0)
 
+#ifdef CONFIG_TC3162_IMEM
+#define __IMEM  __attribute__  ((__section__(".imem_text")))
+#else
+#define __IMEM
+#ifdef L2CACHE_LOCK_CODE
+#define __L2CMEM  __attribute__  ((__section__(".l2cmem_text")))
+#else
+#define __L2CMEM
+#endif
+#endif
+
+#if defined(CONFIG_TC3162_DMEM) && !defined(CONFIG_MIPS_TC3262)
+#define __DMEM  __attribute__  ((__section__(".dmem_data")))
+#else
+#define __DMEM  
+#endif
+/*
+ *      Display an IP address in readable format.
+ */
+#ifdef __LITTLE_ENDIAN
+#define NIPQUAD(addr) \
+        ((unsigned char *)&addr)[3], \
+        ((unsigned char *)&addr)[2], \
+        ((unsigned char *)&addr)[1], \
+        ((unsigned char *)&addr)[0]
+#define NIPTWOBYTE(addr) \
+        ((unsigned char *)&addr)[1], \
+        ((unsigned char *)&addr)[0]
+#else
+#define NIPQUAD(addr) \
+        ((unsigned char *)&addr)[0], \
+        ((unsigned char *)&addr)[1], \
+        ((unsigned char *)&addr)[2], \
+        ((unsigned char *)&addr)[3]
+#define NIPTWOBYTE(addr) \
+        ((unsigned char *)&addr)[0], \
+        ((unsigned char *)&addr)[1]
+#endif
+
+#define NIPQUAD_FMT "%u.%u.%u.%u"
+
+#define NIP6(addr) \
+	ntohs((addr).s6_addr16[0]), \
+	ntohs((addr).s6_addr16[1]), \
+	ntohs((addr).s6_addr16[2]), \
+	ntohs((addr).s6_addr16[3]), \
+	ntohs((addr).s6_addr16[4]), \
+	ntohs((addr).s6_addr16[5]), \
+	ntohs((addr).s6_addr16[6]), \
+	ntohs((addr).s6_addr16[7])
+#define NIP6_FMT "%04x:%04x:%04x:%04x:%04x:%04x:%04x:%04x"
+#define NIP6_SEQFMT "%04x%04x%04x%04x%04x%04x%04x%04x"
+
 #define U8_MAX		((u8)~0U)
 #define S8_MAX		((s8)(U8_MAX>>1))
 #define S8_MIN		((s8)(-S8_MAX - 1))

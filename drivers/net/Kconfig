@@ -26,6 +26,7 @@ menuconfig NETDEVICES
 if NETDEVICES
 
 config MII
+	default y
 	tristate
 
 config NET_CORE

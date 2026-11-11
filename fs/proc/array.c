@@ -86,7 +86,7 @@
 #include <asm/pgtable.h>
 #include <asm/processor.h>
 #include "internal.h"
-
+#include <ecnt_hook/ecnt_hook_voip.h>
 static inline void task_name(struct seq_file *m, struct task_struct *p)
 {
 	int i;
@@ -466,7 +466,9 @@ static int do_task_stat(struct seq_file *m, struct pid_namespace *ns,
 
 	/* convert nsec -> ticks */
 	start_time = nsec_to_clock_t(task->real_start_time);
-
+	
+	VOIP_API_OCCUPANCY_CTRL(task,&utime,&stime);
+	
 	seq_printf(m, "%d (%s) %c", pid_nr_ns(pid, ns), tcomm, state);
 	seq_put_decimal_ll(m, ' ', ppid);
 	seq_put_decimal_ll(m, ' ', pgid);

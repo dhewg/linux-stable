@@ -68,6 +68,7 @@
 #include <linux/slab.h>
 #include "xhci.h"
 #include "xhci-trace.h"
+#include "xhci-mtk.h"
 
 /*
  * Returns zero if the TRB isn't in this segment, otherwise it returns the DMA
@@ -259,10 +260,12 @@ static inline int room_on_ring(struct xhci_hcd *xhci, struct xhci_ring *ring,
 	if (ring->num_trbs_free < num_trbs)
 		return 0;
 
-	if (ring->type != TYPE_COMMAND && ring->type != TYPE_EVENT) {
-		num_trbs_in_deq_seg = ring->dequeue - ring->deq_seg->trbs;
-		if (ring->num_trbs_free < num_trbs + num_trbs_in_deq_seg)
-			return 0;
+	if(!(xhci_mtk_host(xhci))){
+		if (ring->type != TYPE_COMMAND && ring->type != TYPE_EVENT) {
+			num_trbs_in_deq_seg = ring->dequeue - ring->deq_seg->trbs;
+			if (ring->num_trbs_free < num_trbs + num_trbs_in_deq_seg)
+				return 0;
+		}
 	}
 
 	return 1;
@@ -1301,8 +1304,23 @@ static void handle_cmd_completion(struct xhci_hcd *xhci,
 	}
 	/* Does the DMA address match our internal dequeue pointer address? */
 	if (cmd_dma != (u64) cmd_dequeue_dma) {
+		#ifdef TCSUPPORT_USBHOST
+                /* For MTK HC which will use link TRB in event ring completion.
+                 * When COMP_CMD_STOP event occured, MTK HC will not skip link TRB.
+                 * */
+                if (GET_COMP_CODE(le32_to_cpu(event->status)) == COMP_CMD_STOP) {
+                        xhci_dbg(xhci,
+                                "Deq pointer mismatch on COMP_CMD_STOP: (0x%llx dma)\n",
+                                cmd_dma);
+                }
+                else {
+                        xhci->error_bitmask |= 1 << 5;
+                        return;
+                }
+		#else
 		xhci->error_bitmask |= 1 << 5;
 		return;
+		#endif
 	}
 
 	cmd = list_entry(xhci->cmd_list.next, struct xhci_command, cmd_list);
@@ -2810,16 +2828,19 @@ static int prepare_ring(struct xhci_hcd *xhci, struct xhci_ring *ep_ring,
 		next = ring->enqueue;
 
 		while (last_trb(xhci, ring, ring->enq_seg, next)) {
-			/* If we're not dealing with 0.95 hardware or isoc rings
-			 * on AMD 0.96 host, clear the chain bit.
-			 */
-			if (!xhci_link_trb_quirk(xhci) &&
-					!(ring->type == TYPE_ISOC &&
-					 (xhci->quirks & XHCI_AMD_0x96_HOST)))
+			if(xhci_mtk_host(xhci))
 				next->link.control &= cpu_to_le32(~TRB_CHAIN);
-			else
-				next->link.control |= cpu_to_le32(TRB_CHAIN);
-
+			else{
+				/* If we're not dealing with 0.95 hardware or isoc rings
+				 * on AMD 0.96 host, clear the chain bit.
+				 */
+				if (!xhci_link_trb_quirk(xhci) &&
+						!(ring->type == TYPE_ISOC &&
+						 (xhci->quirks & XHCI_AMD_0x96_HOST)))
+					next->link.control &= cpu_to_le32(~TRB_CHAIN);
+				else
+					next->link.control |= cpu_to_le32(TRB_CHAIN);
+			}
 			wmb();
 			next->link.control ^= cpu_to_le32(TRB_CYCLE);
 
@@ -2949,6 +2970,8 @@ static void giveback_first_trb(struct xhci_hcd *xhci, int slot_id,
 		start_trb->field[3] |= cpu_to_le32(start_cycle);
 	else
 		start_trb->field[3] &= cpu_to_le32(~TRB_CYCLE);
+	if(xhci_mtk_host(xhci))
+		wmb();
 	xhci_ring_ep_doorbell(xhci, slot_id, ep_index, stream_id);
 }
 
@@ -3054,6 +3077,7 @@ static int queue_bulk_sg_tx(struct xhci_hcd *xhci, gfp_t mem_flags,
 	bool first_trb;
 	u64 addr;
 	bool more_trbs_coming;
+	unsigned int max_packet = 0;
 
 	struct xhci_generic_trb *start_trb;
 	int start_cycle;
@@ -3062,10 +3086,11 @@ static int queue_bulk_sg_tx(struct xhci_hcd *xhci, gfp_t mem_flags,
 	if (!ep_ring)
 		return -EINVAL;
 
+	max_packet = usb_endpoint_maxp(&urb->ep->desc);
 	num_trbs = count_sg_trbs_needed(xhci, urb);
 	num_sgs = urb->num_mapped_sgs;
 	total_packet_count = DIV_ROUND_UP(urb->transfer_buffer_length,
-			usb_endpoint_maxp(&urb->ep->desc));
+			max_packet);
 
 	trb_buff_len = prepare_transfer(xhci, xhci->devs[slot_id],
 			ep_index, urb->stream_id,
@@ -3141,14 +3166,20 @@ static int queue_bulk_sg_tx(struct xhci_hcd *xhci, gfp_t mem_flags,
 		}
 
 		/* Set the TRB length, TD size, and interrupter fields. */
-		if (xhci->hci_version < 0x100) {
-			remainder = xhci_td_remainder(
-					urb->transfer_buffer_length -
-					running_total);
-		} else {
-			remainder = xhci_v1_0_td_remainder(running_total,
-					trb_buff_len, total_packet_count, urb,
-					num_trbs - 1);
+		if(xhci_mtk_host(xhci)){
+			if (num_trbs > 1)
+				remainder = mtk_xhci_td_remainder(urb->transfer_buffer_length, 
+					running_total, max_packet, trb_buff_len);
+		}else{
+			if (xhci->hci_version < 0x100) {
+				remainder = xhci_td_remainder(
+						urb->transfer_buffer_length -
+						running_total);
+			} else {
+				remainder = xhci_v1_0_td_remainder(running_total,
+						trb_buff_len, total_packet_count, urb,
+						num_trbs - 1);
+			}
 		}
 		length_field = TRB_LEN(trb_buff_len) |
 			remainder |
@@ -3212,6 +3243,7 @@ int xhci_queue_bulk_tx(struct xhci_hcd *xhci, gfp_t mem_flags,
 	int running_total, trb_buff_len, ret;
 	unsigned int total_packet_count;
 	u64 addr;
+	int max_packet;
 
 	if (urb->num_sgs)
 		return queue_bulk_sg_tx(xhci, mem_flags, urb, slot_id, ep_index);
@@ -3237,6 +3269,25 @@ int xhci_queue_bulk_tx(struct xhci_hcd *xhci, gfp_t mem_flags,
 		running_total += TRB_MAX_BUFF_SIZE;
 	}
 	/* FIXME: this doesn't deal with URB_ZERO_PACKET - need one more */
+	if(xhci_mtk_host(xhci)){
+		switch (urb->dev->speed) {
+			case USB_SPEED_SUPER:
+				max_packet = usb_endpoint_maxp(&urb->ep->desc);
+				break;
+			case USB_SPEED_HIGH:
+			case USB_SPEED_FULL:
+			case USB_SPEED_LOW:
+			case USB_SPEED_WIRELESS:
+			case USB_SPEED_UNKNOWN:
+			default:
+				max_packet = usb_endpoint_maxp(&urb->ep->desc) & 0x7ff;
+				break;
+		}
+		if ((urb->transfer_flags & URB_ZERO_PACKET) 
+			&& ((urb->transfer_buffer_length % max_packet) == 0)) {
+			num_trbs++;
+		}
+	}
 
 	ret = prepare_transfer(xhci, xhci->devs[slot_id],
 			ep_index, urb->stream_id,
@@ -3296,14 +3347,18 @@ int xhci_queue_bulk_tx(struct xhci_hcd *xhci, gfp_t mem_flags,
 			field |= TRB_ISP;
 
 		/* Set the TRB length, TD size, and interrupter fields. */
-		if (xhci->hci_version < 0x100) {
-			remainder = xhci_td_remainder(
-					urb->transfer_buffer_length -
-					running_total);
-		} else {
-			remainder = xhci_v1_0_td_remainder(running_total,
-					trb_buff_len, total_packet_count, urb,
-					num_trbs - 1);
+		if(xhci_mtk_host(xhci))
+			remainder = mtk_xhci_td_remainder(urb->transfer_buffer_length, running_total, max_packet, trb_buff_len);
+		else{
+			if (xhci->hci_version < 0x100) {
+				remainder = xhci_td_remainder(
+						urb->transfer_buffer_length -
+						running_total);
+			} else {
+				remainder = xhci_v1_0_td_remainder(running_total,
+						trb_buff_len, total_packet_count, urb,
+						num_trbs - 1);
+			}
 		}
 		length_field = TRB_LEN(trb_buff_len) |
 			remainder |
@@ -3394,7 +3449,7 @@ int xhci_queue_ctrl_tx(struct xhci_hcd *xhci, gfp_t mem_flags,
 		field |= 0x1;
 
 	/* xHCI 1.0 6.4.1.2.1: Transfer Type field */
-	if (xhci->hci_version == 0x100) {
+	if (xhci->hci_version == 0x100 || xhci_mtk_host(xhci)) {
 		if (urb->transfer_buffer_length > 0) {
 			if (setup->bRequestType & USB_DIR_IN)
 				field |= TRB_TX_TYPE(TRB_DATA_IN);
@@ -3416,10 +3471,14 @@ int xhci_queue_ctrl_tx(struct xhci_hcd *xhci, gfp_t mem_flags,
 		field = TRB_ISP | TRB_TYPE(TRB_DATA);
 	else
 		field = TRB_TYPE(TRB_DATA);
+	if(xhci_mtk_host(xhci))	
+		/* CC: MTK style, no scatter-gather for control transfer */
+		length_field = 0;
+	else
+		length_field = xhci_td_remainder(urb->transfer_buffer_length);
+	
+	length_field |= TRB_LEN(urb->transfer_buffer_length) | TRB_INTR_TARGET(0);
 
-	length_field = TRB_LEN(urb->transfer_buffer_length) |
-		xhci_td_remainder(urb->transfer_buffer_length) |
-		TRB_INTR_TARGET(0);
 	if (urb->transfer_buffer_length > 0) {
 		if (setup->bRequestType & USB_DIR_IN)
 			field |= TRB_DIR_IN;
@@ -3541,6 +3600,7 @@ static int xhci_queue_isoc_tx(struct xhci_hcd *xhci, gfp_t mem_flags,
 	u64 start_addr, addr;
 	int i, j;
 	bool more_trbs_coming;
+	int max_packet;
 
 	ep_ring = xhci->devs[slot_id]->eps[ep_index].ring;
 
@@ -3553,6 +3613,20 @@ static int xhci_queue_isoc_tx(struct xhci_hcd *xhci, gfp_t mem_flags,
 	start_addr = (u64) urb->transfer_dma;
 	start_trb = &ep_ring->enqueue->generic;
 	start_cycle = ep_ring->cycle_state;
+	if(xhci_mtk_host(xhci)){
+		switch (urb->dev->speed) {
+			case USB_SPEED_SUPER:
+				max_packet = usb_endpoint_maxp(&urb->ep->desc);
+				break;
+			case USB_SPEED_HIGH:
+			case USB_SPEED_FULL:
+			case USB_SPEED_LOW:
+			case USB_SPEED_WIRELESS:
+			case USB_SPEED_UNKNOWN:
+				max_packet = usb_endpoint_maxp(&urb->ep->desc) & 0x7ff;
+				break;
+		}
+	}
 
 	urb_priv = urb->hcpriv;
 	/* Queue the first TRB, even if it's zero-length */
@@ -3625,9 +3699,8 @@ static int xhci_queue_isoc_tx(struct xhci_hcd *xhci, gfp_t mem_flags,
 			} else {
 				td->last_trb = ep_ring->enqueue;
 				field |= TRB_IOC;
-				if (xhci->hci_version == 0x100 &&
-						!(xhci->quirks &
-							XHCI_AVOID_BEI)) {
+				if((xhci_mtk_host(xhci)||xhci->hci_version == 0x100)&&
+					!(xhci->quirks & XHCI_AVOID_BEI)){
 					/* Set BEI bit except for the last td */
 					if (i < num_tds - 1)
 						field |= TRB_BEI;
@@ -3642,14 +3715,18 @@ static int xhci_queue_isoc_tx(struct xhci_hcd *xhci, gfp_t mem_flags,
 				trb_buff_len = td_remain_len;
 
 			/* Set the TRB length, TD size, & interrupter fields. */
-			if (xhci->hci_version < 0x100) {
-				remainder = xhci_td_remainder(
-						td_len - running_total);
-			} else {
-				remainder = xhci_v1_0_td_remainder(
-						running_total, trb_buff_len,
-						total_packet_count, urb,
-						(trbs_per_td - j - 1));
+			if(xhci_mtk_host(xhci))
+				remainder = mtk_xhci_td_remainder(urb->transfer_buffer_length, running_total, max_packet, trb_buff_len);
+			else{
+				if (xhci->hci_version < 0x100) {
+					remainder = xhci_td_remainder(
+							td_len - running_total);
+				} else {
+					remainder = xhci_v1_0_td_remainder(
+							running_total, trb_buff_len,
+							total_packet_count, urb,
+							(trbs_per_td - j - 1));
+				}
 			}
 			length_field = TRB_LEN(trb_buff_len) |
 				remainder |

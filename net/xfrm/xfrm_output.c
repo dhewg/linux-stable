@@ -19,6 +19,8 @@
 #include <net/dst.h>
 #include <net/xfrm.h>
 
+#include <ecnt_hook/ecnt_hook_crypto.h>
+
 static int xfrm_output2(struct sk_buff *skb);
 
 static int xfrm_skb_check_space(struct sk_buff *skb)
@@ -46,6 +48,22 @@ static int xfrm_output_one(struct sk_buff *skb, int err)
 
 	if (err <= 0)
 		goto resume;
+/* 
+		if(VPN_PASSTHROUGH_SWITCH_ON == gpVpnPTPara->vpnpassthroughswitch)
+		{
+			struct ipsec_para_s ipsec_data;
+			ipsec_data.flag = HWNAT_IPSEC_LEARING;
+			ipsec_data.data.learn.skb = skb;
+			ipsec_data.data.learn.x = x;
+			err = ipsec_esp_output_pt(&ipsec_data);
+			if (err)
+				goto error_nolock;
+		}
+kernel 2.6.36 add code, 3.18 add hook as below!!
+*/ 
+		err = CRYPTO_API_ESP_OUTPUT_PT_LEARN(ECNT_CRYPTO, x, skb);
+		if (err != ECNT_CONTINUE) 
+		return err;	
 
 	do {
 		err = xfrm_skb_check_space(skb);

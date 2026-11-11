@@ -1293,7 +1293,7 @@ EXPORT_SYMBOL(xfrm_policy_delete);
 
 int xfrm_sk_policy_insert(struct sock *sk, int dir, struct xfrm_policy *pol)
 {
-	struct net *net = xp_net(pol);
+	struct net *net = sock_net(sk);
 	struct xfrm_policy *old_pol;
 
 #ifdef CONFIG_XFRM_SUB_POLICY
@@ -2183,7 +2183,7 @@ struct dst_entry *xfrm_lookup(struct net *net, struct dst_entry *dst_orig,
 			      const struct flowi *fl,
 			      struct sock *sk, int flags)
 {
-	struct xfrm_policy *pols[XFRM_POLICY_TYPE_MAX];
+	struct xfrm_policy *pols[XFRM_POLICY_TYPE_MAX] = {NULL};
 	struct flow_cache_object *flo;
 	struct xfrm_dst *xdst;
 	struct dst_entry *dst, *route;

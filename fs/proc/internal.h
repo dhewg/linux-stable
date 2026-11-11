@@ -18,6 +18,7 @@
 struct ctl_table_header;
 struct mempolicy;
 
+#if 0
 /*
  * This is not completely implemented yet. The idea is to
  * create an in-memory tree (like the actual /proc filesystem
@@ -67,6 +68,7 @@ struct proc_inode {
 	struct proc_ns ns;
 	struct inode vfs_inode;
 };
+#endif
 
 /*
  * General functions

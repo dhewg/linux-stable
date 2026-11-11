@@ -7,7 +7,8 @@ if-lt = $(shell [ $(1) -lt $(2) ] && echo 1)
 
 ifeq ($(CONFIG_GCOV_FORMAT_3_4),y)
   cc-ver := 0304
-else ifeq ($(CONFIG_GCOV_FORMAT_4_7),y)
+else 
+ifeq ($(CONFIG_GCOV_FORMAT_4_7),y)
   cc-ver := 0407
 else
 # Use cc-version if available, otherwise set 0
@@ -23,7 +24,7 @@ else
 # scripts/Makefile.clean. But the following workaround seems least invasive.
   cc-ver := $(if $(call cc-version),$(call cc-version),0)
 endif
-
+endif
 obj-$(CONFIG_GCOV_KERNEL) := base.o fs.o
 
 ifeq ($(call if-lt, $(cc-ver), 0407),1)

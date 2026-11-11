@@ -211,7 +211,21 @@ static inline int expect_clash(const struct nf_conntrack_expect *a,
 	   otherwise they clash */
 	struct nf_conntrack_tuple_mask intersect_mask;
 	int count;
-
+	/*bugfix if sip packet contain with audio and image media attribute with the same port, then it will not match rule in hash contain "sip/audio"
+	 * and nf_ct_tuple_mask_cmp() only cmp src/dst addr, port, proto, these are all match with rule in hash
+	 * then sip packet with image is dropped
+	 */
+	if(a->class != b->class)
+	{
+		struct nf_conn_help *master_help_b = nfct_help(b->master);/*b is from app alg*/
+		if( master_help_b && master_help_b->helper )
+		{		
+			if( strcmp(master_help_b->helper->name,"sip")==0)
+			{
+				return false;
+			}
+		}	
+	}
 	intersect_mask.src.u.all = a->mask.src.u.all & b->mask.src.u.all;
 
 	for (count = 0; count < NF_CT_TUPLE_L3SIZE; count++){
@@ -556,7 +570,7 @@ static int exp_seq_show(struct seq_file *s, void *v)
 	helper = rcu_dereference(nfct_help(expect->master)->helper);
 	if (helper) {
 		seq_printf(s, "%s%s", expect->flags ? " " : "", helper->name);
-		if (helper->expect_policy[expect->class].name)
+		if (helper->expect_policy[expect->class].name[0])
 			seq_printf(s, "/%s",
 				   helper->expect_policy[expect->class].name);
 	}

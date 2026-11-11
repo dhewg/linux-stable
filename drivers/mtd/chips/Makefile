@@ -10,6 +10,27 @@ obj-$(CONFIG_MTD_CFI_AMDSTD)	+= cfi_cmdset_0002.o
 obj-$(CONFIG_MTD_CFI_INTELEXT)	+= cfi_cmdset_0001.o
 obj-$(CONFIG_MTD_GEN_PROBE)	+= gen_probe.o
 obj-$(CONFIG_MTD_JEDECPROBE)	+= jedec_probe.o
+ifneq ($(TCSUPPORT_NEW_SPIFLASH),)
+obj-$(CONFIG_MTD_SPIFLASH)	+= newspiflash.o 
+else
+obj-$(CONFIG_MTD_SPIFLASH)	+= spiflash_tc3162.o
+endif
+ifneq ($(strip $(TCSUPPORT_CPU_EN7512) $(TCSUPPORT_CPU_EN7521)),)
+obj-y += spi_nand_flash_table.o
+obj-y += spi_nand_flash.o
+obj-y += spi_controller.o
+obj-y += spi_ecc.o
+obj-y += spi_nfi.o
+ifneq ($(strip $(TCSUPPORT_PARALLEL_NAND)),)
+obj-y += parallel_nand_flash_table.o
+obj-y += parallel_nand_flash.o
+endif
+ifneq ($(strip $(TCSUPPORT_CPU_EN7516) $(TCSUPPORT_CPU_EN7527) $(TCSUPPORT_CPU_EN7580)),)
+ifneq ($(strip $(TCSUPPORT_AUTOBENCH)),)
+obj-y += flash_test.o
+endif
+endif
+endif
 obj-$(CONFIG_MTD_RAM)		+= map_ram.o
 obj-$(CONFIG_MTD_ROM)		+= map_rom.o
 obj-$(CONFIG_MTD_ABSENT)	+= map_absent.o

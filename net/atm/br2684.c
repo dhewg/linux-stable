@@ -28,6 +28,8 @@
 #include <linux/atmbr2684.h>
 
 #include "common.h"
+#include "ecnt_net_atm.h"
+#include <ecnt_hook/ecnt_hook.h>
 
 static void skb_debug(const struct sk_buff *skb)
 {
@@ -207,6 +209,7 @@ static int br2684_xmit_vcc(struct sk_buff *skb, struct net_device *dev,
 		((brdev->payload == p_bridged) ?
 			sizeof(llc_oui_pid_pad) : sizeof(llc_oui_ipv4)) :
 		((brdev->payload == p_bridged) ? BR2684_PAD_LEN : 0);
+	int ret = 0;
 
 	if (skb_headroom(skb) < minheadroom) {
 		struct sk_buff *skb2 = skb_realloc_headroom(skb, minheadroom);
@@ -218,7 +221,13 @@ static int br2684_xmit_vcc(struct sk_buff *skb, struct net_device *dev,
 		}
 		skb = skb2;
 	}
-
+	ret = ecnt_br2684_xmit_vcc_if_inline_hook(skb, dev, brvcc->encaps, brvcc->atmvcc);
+	if(ret){
+		if(ret != ECNT_CONTINUE)
+			return 0;
+		}
+	else 
+	{
 	if (brvcc->encaps == e_llc) {
 		if (brdev->payload == p_bridged) {
 			skb_push(skb, sizeof(llc_oui_pid_pad));
@@ -248,6 +257,7 @@ static int br2684_xmit_vcc(struct sk_buff *skb, struct net_device *dev,
 			memset(skb->data, 0, 2);
 		}
 	}
+	}
 	skb_debug(skb);
 
 	ATM_SKB(skb)->vcc = atmvcc = brvcc->atmvcc;
@@ -257,6 +267,7 @@ static int br2684_xmit_vcc(struct sk_buff *skb, struct net_device *dev,
 	dev->stats.tx_packets++;
 	dev->stats.tx_bytes += skb->len;
 
+#if !defined(CONFIG_CPU_TC3162) && !defined(CONFIG_MIPS_TC3262)
 	if (atomic_dec_return(&brvcc->qspace) < 1) {
 		/* No more please! */
 		netif_stop_queue(brvcc->device);
@@ -264,7 +275,7 @@ static int br2684_xmit_vcc(struct sk_buff *skb, struct net_device *dev,
 		if (unlikely(atomic_read(&brvcc->qspace) > 0))
 			netif_wake_queue(brvcc->device);
 	}
-
+#endif
 	/* If this fails immediately, the skb will be freed and br2684_pop()
 	   will wake the queue if appropriate. Just return an error so that
 	   the stats are updated correctly */
@@ -288,7 +299,7 @@ static inline struct br2684_vcc *pick_outgoing_vcc(const struct sk_buff *skb,
 	return list_empty(&brdev->brvccs) ? NULL : list_entry_brvcc(brdev->brvccs.next);	/* 1 vcc/dev right now */
 }
 
-static netdev_tx_t br2684_start_xmit(struct sk_buff *skb,
+netdev_tx_t br2684_start_xmit(struct sk_buff *skb,
 				     struct net_device *dev)
 {
 	struct br2684_dev *brdev = BRPRIV(dev);
@@ -307,6 +318,10 @@ static netdev_tx_t br2684_start_xmit(struct sk_buff *skb,
 		dev_kfree_skb(skb);
 		goto out_devs;
 	}
+
+	if(ecnt_br2684_start_xmit_padpkt_inline_hook(&skb, &brvcc->copies_failed, &devs_lock, dev)!=ECNT_CONTINUE)
+          return NETDEV_TX_OK;
+    
 	atmvcc = brvcc->atmvcc;
 
 	bh_lock_sock(sk_atm(atmvcc));
@@ -425,10 +440,12 @@ static void br2684_push(struct atm_vcc *atmvcc, struct sk_buff *skb)
 	struct br2684_vcc *brvcc = BR2684_VCC(atmvcc);
 	struct net_device *net_dev = brvcc->device;
 	struct br2684_dev *brdev = BRPRIV(net_dev);
+	int err = 0;
 
 	pr_debug("\n");
 
 	if (unlikely(skb == NULL)) {
+		ecnt_br2684_push_destroy_inline_hook(atmvcc, net_dev);
 		/* skb==NULL means VCC is being destroyed */
 		br2684_close_vcc(brvcc);
 		if (list_empty(&brdev->brvccs)) {
@@ -444,6 +461,14 @@ static void br2684_push(struct atm_vcc *atmvcc, struct sk_buff *skb)
 	skb_debug(skb);
 	atm_return(atmvcc, skb->truesize);
 	pr_debug("skb from brdev %p\n", brdev);
+
+	err = ecnt_br2684_push_hook_inline_hook(atmvcc, skb);
+	if(err != ECNT_RETURN_DROP){
+            if(err == ECNT_RETURN)
+                goto error;
+        }
+    else 
+    {
 	if (brvcc->encaps == e_llc) {
 
 		if (skb->len > 7 && skb->data[7] == 0x01)
@@ -497,6 +522,7 @@ static void br2684_push(struct atm_vcc *atmvcc, struct sk_buff *skb)
 			skb->protocol = eth_type_trans(skb, net_dev);
 		}
 	}
+    }
 
 #ifdef CONFIG_ATM_BR2684_IPFILTER
 	if (unlikely(packet_fails_filter(skb->protocol, brvcc, skb)))
@@ -512,6 +538,9 @@ static void br2684_push(struct atm_vcc *atmvcc, struct sk_buff *skb)
 	net_dev->stats.rx_packets++;
 	net_dev->stats.rx_bytes += skb->len;
 	memset(ATM_SKB(skb), 0, sizeof(struct atm_skb_data));
+	err = ecnt_br2684_push_hwnat_inline_hook(skb);
+	if(err)
+		return;
 	netif_rx(skb);
 	return;
 
@@ -538,6 +567,10 @@ static int br2684_regvcc(struct atm_vcc *atmvcc, void __user * arg)
 
 	if (copy_from_user(&be, arg, sizeof be))
 		return -EFAULT;
+
+	if(ecnt_br2684_regvcc_init_inline_hook(atmvcc, be.encaps, &err) == ECNT_RETURN)
+            return err;
+
 	brvcc = kzalloc(sizeof(struct br2684_vcc), GFP_KERNEL);
 	if (!brvcc)
 		return -ENOMEM;
@@ -653,7 +686,8 @@ static void br2684_setup_routed(struct net_device *netdev)
 	netdev->addr_len = 0;
 	netdev->mtu = 1500;
 	netdev->type = ARPHRD_PPP;
-	netdev->flags = IFF_POINTOPOINT | IFF_NOARP | IFF_MULTICAST;
+	/*netdev->flags = IFF_POINTOPOINT | IFF_NOARP | IFF_MULTICAST;*/    
+	ecnt_br2684_setup_routed_flags_inline_hook(netdev);
 	netdev->tx_queue_len = 100;
 	INIT_LIST_HEAD(&brdev->brvccs);
 }
@@ -701,6 +735,8 @@ static int br2684_create(void __user *arg)
 	write_lock_irq(&devs_lock);
 
 	brdev->payload = payload;
+
+	ecnt_br2684_create_config_inline_hook(payload);
 
 	if (list_empty(&br2684_devs)) {
 		/* 1st br2684 device */
@@ -837,7 +873,7 @@ static const struct file_operations br2684_proc_ops = {
 extern struct proc_dir_entry *atm_proc_root;	/* from proc.c */
 #endif /* CONFIG_PROC_FS */
 
-static int __init br2684_init(void)
+int br2684_init(void)
 {
 #ifdef CONFIG_PROC_FS
 	struct proc_dir_entry *p;
@@ -850,7 +886,7 @@ static int __init br2684_init(void)
 	return 0;
 }
 
-static void __exit br2684_exit(void)
+void br2684_exit(void)
 {
 	struct net_device *net_dev;
 	struct br2684_dev *brdev;
@@ -878,8 +914,11 @@ static void __exit br2684_exit(void)
 	}
 }
 
+
+#if 0//!defined(TCSUPPORT_CPU_MT7510) && !defined(TCSUPPORT_CPU_MT7505) && !defined(TCSUPPORT_CPU_EN7512) 
 module_init(br2684_init);
 module_exit(br2684_exit);
+#endif
 
 MODULE_AUTHOR("Marcell GAL");
 MODULE_DESCRIPTION("RFC2684 bridged protocols over ATM/AAL5");

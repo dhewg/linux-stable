@@ -1243,7 +1243,7 @@ build_fast_tlb_refill_handler (u32 **p, struct uasm_label **l,
  * unused TLB refill exception.
  */
 #define MIPS64_REFILL_INSNS 32
-
+u32 workaround_painc;
 static void build_r4000_tlb_refill_handler(void)
 {
 	u32 *p = tlb_handler;
@@ -1300,6 +1300,7 @@ static void build_r4000_tlb_refill_handler(void)
 		build_tlb_write_entry(&p, &l, &r, tlb_random);
 		uasm_l_leave(&l, p);
 		uasm_i_eret(&p); /* return from trap */
+		workaround_painc = p;//no hang
 	}
 #ifdef CONFIG_MIPS_HUGE_TLB_SUPPORT
 	uasm_l_tlb_huge_update(&l, p);

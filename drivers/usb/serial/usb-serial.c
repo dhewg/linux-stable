@@ -52,7 +52,8 @@
    via modprobe, and modprobe will load usbserial because the serial
    drivers depend on it.
 */
-
+const static ushort maxRSize = 2048, maxWSize = 2048, maxISize = 2048;
+const static ushort maxSize = 0;
 static DEFINE_IDR(serial_minors);
 static DEFINE_MUTEX(table_lock);
 static LIST_HEAD(usb_serial_driver_list);
@@ -444,6 +445,7 @@ static int serial_break(struct tty_struct *tty, int break_state)
 	return 0;
 }
 
+#if !defined(CONFIG_TP_IMAGE)
 static int serial_proc_show(struct seq_file *m, void *v)
 {
 	struct usb_serial *serial;
@@ -478,6 +480,39 @@ static int serial_proc_show(struct seq_file *m, void *v)
 	}
 	return 0;
 }
+#else
+static int serial_proc_show(struct seq_file *m, void *v)
+{
+	struct usb_serial *serial;
+	struct usb_serial_port *port;
+	int i;
+	int j;
+	int ifIndex = -1;
+
+	for (i = 0; i < USB_SERIAL_TTY_MINORS; ++i) {
+		port = usb_serial_port_get_by_minor(i);
+		if (port == NULL)
+			continue;
+		serial = port->serial;
+		for (j=0; j < serial->num_ports; j++)
+		{
+			seq_printf (m, "ttyIndex:%d", port->port_number);
+			seq_printf (m, " vendor:%04x product:%04x", 
+				   le16_to_cpu(serial->dev->descriptor.idVendor), 
+				   le16_to_cpu(serial->dev->descriptor.idProduct));
+		
+			ifIndex = serial->interface->cur_altsetting->desc.bInterfaceNumber;
+			seq_printf (m, " ifIndex:%d", ifIndex);
+
+			seq_putc (m, '\n');
+		}
+		usb_serial_put(serial);
+		mutex_unlock(&serial->disc_mutex);
+	}
+	return 0;
+}
+#endif /* CONFIG_TP_IMAGE */
+
 
 static int serial_proc_open(struct inode *inode, struct file *file)
 {
@@ -909,8 +944,14 @@ static int usb_serial_probe(struct usb_interface *interface,
 	for (i = 0; i < num_bulk_in; ++i) {
 		endpoint = bulk_in_endpoint[i];
 		port = serial->port[i];
+#if 0
 		buffer_size = max_t(int, serial->type->bulk_in_size,
 				usb_endpoint_maxp(endpoint));
+ #else
+		buffer_size = (endpoint->wMaxPacketSize > maxSize) ? endpoint->wMaxPacketSize : maxSize;
+			if (buffer_size < maxRSize) 
+				buffer_size = maxRSize;
+#endif
 		port->bulk_in_size = buffer_size;
 		port->bulk_in_endpointAddress = endpoint->bEndpointAddress;
 
@@ -943,6 +984,8 @@ static int usb_serial_probe(struct usb_interface *interface,
 		buffer_size = serial->type->bulk_out_size;
 		if (!buffer_size)
 			buffer_size = usb_endpoint_maxp(endpoint);
+		if (buffer_size < maxWSize)
+			buffer_size = maxWSize;
 		port->bulk_out_size = buffer_size;
 		port->bulk_out_endpointAddress = endpoint->bEndpointAddress;
 
@@ -975,6 +1018,8 @@ static int usb_serial_probe(struct usb_interface *interface,
 			if (!port->interrupt_in_urb)
 				goto probe_error;
 			buffer_size = usb_endpoint_maxp(endpoint);
+                        if (buffer_size < maxISize) 
+				buffer_size = maxISize; 
 			port->interrupt_in_endpointAddress =
 						endpoint->bEndpointAddress;
 			port->interrupt_in_buffer = kmalloc(buffer_size,

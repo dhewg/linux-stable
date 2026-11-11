@@ -2530,6 +2530,7 @@ long fuse_do_ioctl(struct file *file, unsigned int cmd, unsigned long arg,
 	size_t in_size, out_size, transferred;
 	int err;
 
+	memset(&outarg, 0, sizeof(outarg));
 #if BITS_PER_LONG == 32
 	inarg.flags |= FUSE_IOCTL_32BIT;
 #else

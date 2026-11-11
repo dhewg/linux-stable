@@ -102,4 +102,7 @@ extern int ndo_dflt_fdb_del(struct ndmsg *ndm,
 
 extern int ndo_dflt_bridge_getlink(struct sk_buff *skb, u32 pid, u32 seq,
 				   struct net_device *dev, u16 mode);
+#ifdef CONFIG_TP_IMAGE
+extern void __rta_fill(struct sk_buff *skb, int attrtype, int attrlen, const void *data);
+#endif /* CONFIG_TP_IMAGE */
 #endif	/* __LINUX_RTNETLINK_H */

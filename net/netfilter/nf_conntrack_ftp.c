@@ -26,6 +26,7 @@
 #include <net/netfilter/nf_conntrack_ecache.h>
 #include <net/netfilter/nf_conntrack_helper.h>
 #include <linux/netfilter/nf_conntrack_ftp.h>
+#include "ecnt_netfilter.h"
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Rusty Russell <rusty@rustcorp.com.au>");
@@ -409,6 +410,9 @@ static int help(struct sk_buff *skb,
 		pr_debug("ftp: Conntrackinfo = %u\n", ctinfo);
 		return NF_ACCEPT;
 	}
+
+	if ( ECNT_RETURN == ecnt_nf_conntrack_ftp_help_inline_hook(skb, ct) )
+		return NF_ACCEPT;
 
 	th = skb_header_pointer(skb, protoff, sizeof(_tcph), &_tcph);
 	if (th == NULL)

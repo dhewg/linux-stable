@@ -954,7 +954,11 @@ static int ip6_tnl_xmit2(struct sk_buff *skb,
 			 __u8 dsfield,
 			 struct flowi6 *fl6,
 			 int encap_limit,
-			 __u32 *pmtu)
+			 __u32 *pmtu
+#ifdef CONFIG_TP_IMAGE
+			 ,__u8 ignore_df
+#endif
+			 )
 {
 	struct ip6_tnl *t = netdev_priv(dev);
 	struct net *net = t->net;
@@ -967,6 +971,10 @@ static int ip6_tnl_xmit2(struct sk_buff *skb,
 	unsigned int max_headroom = sizeof(struct ipv6hdr);
 	u8 proto;
 	int err = -1;
+
+#ifdef CONFIG_TP_IMAGE
+	int needFrag = 0;
+#endif
 
 	if (!fl6->flowi6_mark)
 		dst = ip6_tnl_dst_check(t);
@@ -1003,8 +1011,17 @@ static int ip6_tnl_xmit2(struct sk_buff *skb,
 		skb_dst(skb)->ops->update_pmtu(skb_dst(skb), NULL, skb, mtu);
 	if (skb->len > mtu) {
 		*pmtu = mtu;
+#ifdef CONFIG_TP_IMAGE
+		needFrag = 1;
+		if(!ignore_df)
+		{
+			err = -EMSGSIZE;
+			goto tx_err_dst_release;
+		}
+#else
 		err = -EMSGSIZE;
 		goto tx_err_dst_release;
+#endif
 	}
 
 	skb_scrub_packet(skb, !net_eq(t->net, dev_net(dev)));
@@ -1048,13 +1065,31 @@ static int ip6_tnl_xmit2(struct sk_buff *skb,
 	skb_push(skb, sizeof(struct ipv6hdr));
 	skb_reset_network_header(skb);
 	ipv6h = ipv6_hdr(skb);
+#ifdef CONFIG_TP_IMAGE
+	ip6_flow_hdr(ipv6h, dsfield,
+			ip6_make_flowlabel(net, skb, fl6->flowlabel, false));
+#else
 	ip6_flow_hdr(ipv6h, INET_ECN_encapsulate(0, dsfield),
 		     ip6_make_flowlabel(net, skb, fl6->flowlabel, false));
+#endif
+
 	ipv6h->hop_limit = t->parms.hop_limit;
 	ipv6h->nexthdr = proto;
 	ipv6h->saddr = fl6->saddr;
 	ipv6h->daddr = fl6->daddr;
+#ifdef CONFIG_TP_IMAGE
+	if (needFrag) {
+		skb->ignore_df = ignore_df;
+		ip6_fragment(skb, ip6_local_out);
+	}
+	else {
+		ip6tunnel_xmit(skb, dev);
+	}
+	needFrag = 1;
+#else
 	ip6tunnel_xmit(skb, dev);
+#endif
+
 	if (ndst)
 		ip6_tnl_dst_store(t, ndst);
 	return 0;
@@ -1076,6 +1111,9 @@ ip4ip6_tnl_xmit(struct sk_buff *skb, struct net_device *dev)
 	__u8 dsfield;
 	__u32 mtu;
 	int err;
+#ifdef CONFIG_TP_IMAGE
+	__u8 ignore_df = 1;
+#endif
 
 	if ((t->parms.proto != IPPROTO_IPIP && t->parms.proto != 0) ||
 	    !ip6_tnl_xmit_ctl(t))
@@ -1095,12 +1133,36 @@ ip4ip6_tnl_xmit(struct sk_buff *skb, struct net_device *dev)
 	if (t->parms.flags & IP6_TNL_F_USE_ORIG_FWMARK)
 		fl6.flowi6_mark = skb->mark;
 
-	err = ip6_tnl_xmit2(skb, dev, dsfield, &fl6, encap_limit, &mtu);
+#ifdef CONFIG_TP_IMAGE
+	if(iph->frag_off & htons(IP_DF))
+	{
+		ignore_df = 0;
+	}
+#endif
+
+	err = ip6_tnl_xmit2(skb, dev, dsfield, &fl6, encap_limit, &mtu
+#ifdef CONFIG_TP_IMAGE
+						,ignore_df
+#endif
+						);
 	if (err != 0) {
 		/* XXX: send ICMP error even if DF is not set. */
 		if (err == -EMSGSIZE)
+		{
+#ifdef CONFIG_TP_IMAGE
+			if (!skb_dst(skb))
+			{
+				int err = ip_route_input_noref(skb, iph->daddr, iph->saddr,
+								   iph->tos, skb->dev);
+				if (unlikely(err)) {
+					return -1;
+				}
+			}
+#endif
 			icmp_send(skb, ICMP_DEST_UNREACH, ICMP_FRAG_NEEDED,
 				  htonl(mtu));
+		}
+
 		return -1;
 	}
 
@@ -1147,7 +1209,12 @@ ip6ip6_tnl_xmit(struct sk_buff *skb, struct net_device *dev)
 	if (t->parms.flags & IP6_TNL_F_USE_ORIG_FWMARK)
 		fl6.flowi6_mark = skb->mark;
 
-	err = ip6_tnl_xmit2(skb, dev, dsfield, &fl6, encap_limit, &mtu);
+	err = ip6_tnl_xmit2(skb, dev, dsfield, &fl6, encap_limit, &mtu
+#ifdef CONFIG_TP_IMAGE
+				,0
+#endif
+						);
+
 	if (err != 0) {
 		if (err == -EMSGSIZE)
 			icmpv6_send(skb, ICMPV6_PKT_TOOBIG, 0, mtu);

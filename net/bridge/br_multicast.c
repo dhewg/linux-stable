@@ -34,6 +34,7 @@
 #endif
 
 #include "br_private.h"
+#include "ecnt_br.h"
 
 static void br_multicast_start_querier(struct net_bridge *br,
 				       struct bridge_mcast_own_query *query);
@@ -85,6 +86,13 @@ static inline int br_ip_hash(struct net_bridge_mdb_htable *mdb,
 	}
 	return 0;
 }
+
+/*------export the br_ip_hash for use outside------*/
+int br_ip_hash_for_export(struct net_bridge_mdb_htable *mdb, struct br_ip *ip)
+{
+	return br_ip_hash(mdb, ip);
+}
+/*-------------------------------------------*/
 
 static struct net_bridge_mdb_entry *__br_mdb_ip_get(
 	struct net_bridge_mdb_htable *mdb, struct br_ip *dst, int hash)
@@ -141,10 +149,13 @@ struct net_bridge_mdb_entry *br_mdb_get(struct net_bridge *br,
 	struct net_bridge_mdb_htable *mdb = rcu_dereference(br->mdb);
 	struct br_ip ip;
 
-	if (br->multicast_disabled)
+	if(ecnt_br_get_snooping_state_inline_hook(br,skb->protocol,vid))
 		return NULL;
 
 	if (BR_INPUT_SKB_CB(skb)->igmp)
+		return NULL;
+
+	if ( ECNT_RETURN == ecnt_br_mdb_get_inline_hook(skb) )
 		return NULL;
 
 	ip.proto = skb->protocol;
@@ -211,6 +222,9 @@ void br_multicast_free_pg(struct rcu_head *head)
 	struct net_bridge_port_group *p =
 		container_of(head, struct net_bridge_port_group, rcu);
 
+	if ( p->port && p->port->br )
+		ecnt_br_multicast_del_pg_inline_hook(p->port->br , p);
+
 	kfree(p);
 }
 
@@ -276,6 +290,8 @@ static void br_multicast_del_pg(struct net_bridge *br,
 		if (!mp->ports && !mp->mglist &&
 		    netif_running(br->dev))
 			mod_timer(&mp->timer, jiffies);
+
+		ecnt_br_multicast_del_pg_inline_hook( br , pg );
 
 		return;
 	}
@@ -509,7 +525,7 @@ static struct sk_buff *br_multicast_alloc_query(struct net_bridge *br,
 	return NULL;
 }
 
-static struct net_bridge_mdb_entry *br_multicast_get_group(
+struct net_bridge_mdb_entry *br_multicast_get_group(
 	struct net_bridge *br, struct net_bridge_port *port,
 	struct br_ip *group, int hash)
 {
@@ -548,7 +564,8 @@ static struct net_bridge_mdb_entry *br_multicast_get_group(
 				port ? port->dev->name : br->dev->name);
 			err = -E2BIG;
 disable:
-			br->multicast_disabled = 1;
+			if(!ecnt_br_disable_snooping_inline_hook(br, group->vid))
+				br->multicast_disabled = 1;
 			goto err;
 		}
 	}
@@ -643,6 +660,8 @@ struct net_bridge_port_group *br_multicast_new_port_group(
 	if (unlikely(!p))
 		return NULL;
 
+	ecnt_br_multicast_new_port_group_inline_hook(port,group,p);
+
 	p->addr = *group;
 	p->port = port;
 	p->state = state;
@@ -678,6 +697,11 @@ static int br_multicast_add_group(struct net_bridge *br,
 		mod_timer(&mp->timer, now + br->multicast_membership_interval);
 		goto out;
 	}
+	/*here walk around kenel process, if any change ,be careful*/
+	if(ECNT_CONTINUE != ecnt_br_multicast_add_group_inline_hook(mp,port,group,br,now))
+		goto err;
+	else
+		goto out;
 
 	for (pp = &mp->ports;
 	     (p = mlock_dereference(*pp, br)) != NULL;
@@ -808,6 +832,9 @@ static void __br_multicast_send_query(struct net_bridge *br,
 {
 	struct sk_buff *skb;
 
+	if(ecnt_br_get_snooping_state_inline_hook(br,ip->proto,ip->vid))
+		return;
+	
 	skb = br_multicast_alloc_query(br, ip);
 	if (!skb)
 		return;
@@ -1029,6 +1056,9 @@ static int br_ip6_multicast_mld2_report(struct net_bridge *br,
 	int num;
 	int err = 0;
 
+    err = ecnt_br_ip6_multicast_mld2_report_inline_hook(br, port, skb, vid);
+    return err;
+    
 	if (!pskb_may_pull(skb, sizeof(*icmp6h)))
 		return -EINVAL;
 
@@ -1416,8 +1446,7 @@ br_multicast_leave_group(struct net_bridge *br,
 
 	spin_lock(&br->multicast_lock);
 	if (!netif_running(br->dev) ||
-	    (port && port->state == BR_STATE_DISABLED) ||
-	    timer_pending(&other_query->timer))
+	    (port && port->state == BR_STATE_DISABLED))
 		goto out;
 
 	mdb = mlock_dereference(br->mdb, br);
@@ -1425,9 +1454,18 @@ br_multicast_leave_group(struct net_bridge *br,
 	if (!mp)
 		goto out;
 
-	if (br->multicast_querier) {
+	if ((br->multicast_querier) 
+#ifdef TCSUPPORT_IGMPSNOOPING_ENHANCE
+        && (!br->quick_leave)
+#endif
+        ) {
 		__br_multicast_send_query(br, port, &mp->addr);
 
+#ifdef TCSUPPORT_IGMPSNOOPING_ENHANCE
+		time = jiffies + br->multicast_membership_interval*
+		     br->multicast_last_member_interval;
+		if(br->quick_leave)
+#endif
 		time = jiffies + br->multicast_last_member_count *
 				 br->multicast_last_member_interval;
 
@@ -1448,15 +1486,25 @@ br_multicast_leave_group(struct net_bridge *br,
 
 			break;
 		}
+		if (timer_pending(&other_query->timer))
+			goto out;
 	}
 
-	if (port && (port->flags & BR_MULTICAST_FAST_LEAVE)) {
+	if (port && (port->flags & BR_MULTICAST_FAST_LEAVE
+#ifdef TCSUPPORT_IGMPSNOOPING_ENHANCE
+		|| br->quick_leave
+#endif
+		)) {
 		struct net_bridge_port_group __rcu **pp;
 
 		for (pp = &mp->ports;
 		     (p = mlock_dereference(*pp, br)) != NULL;
 		     pp = &p->next) {
+#ifdef TCSUPPORT_IGMPSNOOPING_ENHANCE
+			if(!br_multicast_equal_port_group(p, port, group))
+#else
 			if (p->port != port)
+#endif
 				continue;
 
 			rcu_assign_pointer(*pp, p->next);
@@ -1503,6 +1551,7 @@ br_multicast_leave_group(struct net_bridge *br,
 		break;
 	}
 out:
+	ecnt_br_multicast_leave_group_inline_hook(br,port,group);
 	spin_unlock(&br->multicast_lock);
 }
 
@@ -1579,6 +1628,9 @@ static int br_multicast_ipv4_rcv(struct net_bridge *br,
 	if (unlikely(ip_fast_csum((u8 *)iph, iph->ihl)))
 		return -EINVAL;
 
+	if ( ECNT_RETURN == ecnt_br_mdb_get_inline_hook(skb) )
+		return 0;
+
 	if (iph->protocol != IPPROTO_IGMP) {
 		if (!ipv4_is_local_multicast(iph->daddr))
 			BR_INPUT_SKB_CB(skb)->mrouters_only = 1;
@@ -1624,10 +1676,20 @@ static int br_multicast_ipv4_rcv(struct net_bridge *br,
 	BR_INPUT_SKB_CB(skb)->igmp = 1;
 	ih = igmp_hdr(skb2);
 
+	/*ecnt_br_multicast_ipv4_rcv_inline_hook*/
+	{
+		int ret ;
+		ret = ecnt_br_multicast_ipv4_rcv_inline_hook(port,skb,skb2,iph,ih,&err) ;
+		if(ret != ECNT_CONTINUE){
+			goto out;
+		}
+	}		
+	
 	switch (ih->type) {
 	case IGMP_HOST_MEMBERSHIP_REPORT:
 	case IGMPV2_HOST_MEMBERSHIP_REPORT:
-		BR_INPUT_SKB_CB(skb)->mrouters_only = 1;
+		if(timer_pending(&br->ip4_other_query.timer))
+			BR_INPUT_SKB_CB(skb)->mrouters_only = 1;
 		err = br_ip4_multicast_add_group(br, port, ih->group, vid);
 		break;
 	case IGMPV3_HOST_MEMBERSHIP_REPORT:
@@ -1638,6 +1700,7 @@ static int br_multicast_ipv4_rcv(struct net_bridge *br,
 		break;
 	case IGMP_HOST_LEAVE_MESSAGE:
 		br_ip4_multicast_leave_group(br, port, ih->group, vid);
+		skb->igmp_leave_drop_flag = ecnt_br_drop_ip4_leave_pg_hook(br, ih->group, vid);
 		break;
 	}
 
@@ -1678,13 +1741,15 @@ static int br_multicast_ipv6_rcv(struct net_bridge *br,
 	if (ip6h->version != 6)
 		return 0;
 
-	/* Prevent flooding this packet if there is no listener present */
-	if (!ipv6_addr_is_ll_all_nodes(&ip6h->daddr))
-		BR_INPUT_SKB_CB(skb)->mrouters_only = 1;
-
-	if (ip6h->nexthdr != IPPROTO_HOPOPTS ||
-	    ip6h->payload_len == 0)
+	if ( ECNT_RETURN == ecnt_br_multicast_ipv6_rcv_prehandle_inline_hook(ip6h) )
 		return 0;
+
+	if (ip6h->nexthdr != IPPROTO_HOPOPTS || ip6h->payload_len == 0) {
+		/* Prevent flooding this packet if there is no listener present */
+		if (!ipv6_addr_is_ll_all_nodes(&ip6h->daddr))
+			BR_INPUT_SKB_CB(skb)->mrouters_only = 1;
+		return 0;
+	}
 
 	len = ntohs(ip6h->payload_len) + sizeof(*ip6h);
 	if (skb->len < len)
@@ -1693,8 +1758,12 @@ static int br_multicast_ipv6_rcv(struct net_bridge *br,
 	nexthdr = ip6h->nexthdr;
 	offset = ipv6_skip_exthdr(skb, sizeof(*ip6h), &nexthdr, &frag_off);
 
-	if (offset < 0 || nexthdr != IPPROTO_ICMPV6)
+	if (offset < 0 || nexthdr != IPPROTO_ICMPV6) {
+		/* Prevent flooding this packet if there is no listener present */
+		if (!ipv6_addr_is_ll_all_nodes(&ip6h->daddr))
+			BR_INPUT_SKB_CB(skb)->mrouters_only = 1;
 		return 0;
+	}
 
 	/* Okay, we found ICMPv6 header */
 	skb2 = skb_clone(skb, GFP_ATOMIC);
@@ -1719,6 +1788,8 @@ static int br_multicast_ipv6_rcv(struct net_bridge *br,
 	case ICMPV6_MGM_REPORT:
 	case ICMPV6_MGM_REDUCTION:
 	case ICMPV6_MLD2_REPORT:
+		if(!timer_pending(&br->ip6_other_query.timer))
+			BR_INPUT_SKB_CB(skb)->mrouters_only = 0;
 		break;
 	default:
 		err = 0;
@@ -1754,6 +1825,13 @@ static int br_multicast_ipv6_rcv(struct net_bridge *br,
 
 	BR_INPUT_SKB_CB(skb)->igmp = 1;
 
+	{
+		int ret ;
+		ret = ecnt_br_multicast_ipv6_rcv_inline_hook(port,skb,skb2,icmp6_type,&err) ;
+		if(ECNT_RETURN_DROP == ret) 
+			goto out ;
+	}
+	
 	switch (icmp6_type) {
 	case ICMPV6_MGM_REPORT:
 	    {
@@ -1763,7 +1841,8 @@ static int br_multicast_ipv6_rcv(struct net_bridge *br,
 			goto out;
 		}
 		mld = (struct mld_msg *)skb_transport_header(skb2);
-		BR_INPUT_SKB_CB(skb)->mrouters_only = 1;
+		if(timer_pending(&br->ip6_other_query.timer))
+			BR_INPUT_SKB_CB(skb)->mrouters_only = 1;
 		err = br_ip6_multicast_add_group(br, port, &mld->mld_mca, vid);
 		break;
 	    }
@@ -1794,10 +1873,16 @@ out:
 int br_multicast_rcv(struct net_bridge *br, struct net_bridge_port *port,
 		     struct sk_buff *skb, u16 vid)
 {
+	int ret = -EINVAL;
+
 	BR_INPUT_SKB_CB(skb)->igmp = 0;
 	BR_INPUT_SKB_CB(skb)->mrouters_only = 0;
 
-	if (br->multicast_disabled)
+	ret = ecnt_br_multicast_rcv_inline_hook(br, skb);
+	if ( ECNT_RETURN_DROP == ret )
+		return -EINVAL;
+
+	if (ecnt_br_get_snooping_state_inline_hook(br,skb->protocol,vid))
 		return 0;
 
 	switch (skb->protocol) {
@@ -1879,6 +1964,9 @@ void br_multicast_init(struct net_bridge *br)
 	setup_timer(&br->ip6_own_query.timer, br_ip6_multicast_query_expired,
 		    (unsigned long)br);
 #endif
+
+	ecnt_br_multicast_init_inline_hook(br);
+
 }
 
 static void __br_multicast_open(struct net_bridge *br,
@@ -2042,11 +2130,17 @@ int br_multicast_toggle(struct net_bridge *br, unsigned long val)
 	int err = 0;
 	struct net_bridge_mdb_htable *mdb;
 
-	spin_lock_bh(&br->multicast_lock);
-	if (br->multicast_disabled == !val)
-		goto unlock;
+	ecnt_br_multicast_toggle_inline_hook(val);
 
-	br->multicast_disabled = !val;
+	spin_lock_bh(&br->multicast_lock);
+	if(!ecnt_br_set_snooping_state_inline_hook(br,val))
+	{
+		if (br->multicast_disabled== !val)
+			goto unlock;
+
+		br->multicast_disabled = !val;
+	}
+	
 	if (br->multicast_disabled)
 		goto unlock;
 
@@ -2058,7 +2152,8 @@ int br_multicast_toggle(struct net_bridge *br, unsigned long val)
 		if (mdb->old) {
 			err = -EEXIST;
 rollback:
-			br->multicast_disabled = !!val;
+			if(!ecnt_br_set_snooping_state_inline_hook(br,val^1))
+				br->multicast_disabled = !!val;			
 			goto unlock;
 		}
 

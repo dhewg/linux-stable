@@ -512,7 +512,10 @@ static unsigned int nf_nat_sdp_session(struct sk_buff *skb, unsigned int protoff
 	buflen = sip_sprintf_addr(ct, buffer, addr, false);
 	if (mangle_sdp_packet(skb, protoff, dataoff, dptr, datalen, sdpoff,
 			      SDP_HDR_OWNER, SDP_HDR_MEDIA, buffer, buflen))
-		return 0;
+	{
+		/*We can not mangle sdp owner address with domain name, let the packet pass*/
+		//return 0;
+	}
 
 	switch (mangle_sdp_packet(skb, protoff, dataoff, dptr, datalen, sdpoff,
 				  SDP_HDR_CONNECTION, SDP_HDR_MEDIA,

@@ -22,6 +22,7 @@ platforms += paravirt
 platforms += pmcs-msp71xx
 platforms += pnx833x
 platforms += ralink
+platforms += econet
 platforms += rb532
 platforms += sgi-ip22
 platforms += sgi-ip27

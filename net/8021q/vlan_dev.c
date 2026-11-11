@@ -35,6 +35,66 @@
 #include <linux/if_vlan.h>
 #include <linux/netpoll.h>
 
+#ifdef INCLUDE_802_1P_VOIP
+static int voip_pcp = 0;
+static int init_pcp = 0;
+
+static int voip_8021p_pcp_read(struct file *file, char __user *page, size_t size, loff_t *off)
+{
+	int n;
+
+	if (page == NULL || off == NULL)
+	{
+		return 0;
+	}
+
+	if (*off != 0)
+	{
+		return 0;
+	}
+
+	n = sprintf(page, "voip pcp : %d\n",voip_pcp);
+
+	*off = n;
+
+	return n;
+}
+
+static int voip_8021p_pcp_write(struct file *file, const char __user *buffer, size_t count, loff_t *data)
+{
+	char val_string[20];
+	int val = 0;
+
+	if (count > sizeof(val_string) - 1)
+		return -EINVAL;
+	if (copy_from_user(val_string, buffer, count))
+		return -EFAULT;
+
+	if (sscanf(val_string, "%d", &val) != 1)
+	{
+		printk("usage: <pcp(0~7)>\n");
+		return count;
+	}
+
+	if( (val<0) || (val>7) )
+	{
+		printk("The PCP value should be within 0~7\n");
+	}
+	else
+	{
+		voip_pcp = val;
+	}
+
+	return count;
+}
+
+static struct file_operations voip_8021p_pcp_entry = {
+	.owner 		= THIS_MODULE,
+	.read	 	= voip_8021p_pcp_read,
+	.write		= voip_8021p_pcp_write,
+};
+#endif /* INCLUDE_802_1P_VOIP */
+
 /*
  *	Rebuild the Ethernet MAC header. This is called after an ARP
  *	(or in future other address resolution) has completed on this
@@ -149,9 +209,19 @@ static netdev_tx_t vlan_dev_hard_start_xmit(struct sk_buff *skb,
 	    vlan->flags & VLAN_FLAG_REORDER_HDR) {
 		u16 vlan_tci;
 		vlan_tci = vlan->vlan_id;
-		vlan_tci |= vlan_dev_get_egress_qos_mask(dev, skb->priority);
-		skb = __vlan_hwaccel_put_tag(skb, vlan->vlan_proto, vlan_tci);
-	}
+#ifdef INCLUDE_802_1P_VOIP
+		if((skb->mark&0x61) == 0x61)
+		{
+			vlan_tci |= (voip_pcp<<13);
+		}
+		else
+#endif
+		{
+			vlan_tci |= vlan_dev_get_egress_qos_mask(dev, skb->priority);
+		}
+		if (vlan_tci != 0)	//CHENMING W0988 2018-12-7 fake vlan id 0 to vlan untag
+			skb = __vlan_hwaccel_put_tag(skb, vlan->vlan_proto, vlan_tci);
+		}
 
 	skb->dev = vlan->real_dev;
 	len = skb->len;
@@ -276,6 +346,12 @@ void vlan_dev_get_realdev_name(const struct net_device *dev, char *result)
 	strncpy(result, vlan_dev_priv(dev)->real_dev->name, 23);
 }
 
+//CHENMING W0988 2018-12-7 fake vlan id 0 to vlan untag
+struct net_device * vlan_fake_dev = NULL;
+EXPORT_SYMBOL(vlan_fake_dev);
+struct net_device * vlan_real_dev = NULL;
+EXPORT_SYMBOL(vlan_real_dev);
+
 static int vlan_dev_open(struct net_device *dev)
 {
 	struct vlan_dev_priv *vlan = vlan_dev_priv(dev);
@@ -313,6 +389,14 @@ static int vlan_dev_open(struct net_device *dev)
 
 	if (netif_carrier_ok(real_dev))
 		netif_carrier_on(dev);
+
+	//CHENMING W0988 2018-12-7 fake vlan id 0 to vlan untag
+	if (vlan->vlan_id == 0)
+	{
+		vlan_real_dev = real_dev;
+		vlan_fake_dev = dev;
+	}
+	
 	return 0;
 
 clear_allmulti:
@@ -330,6 +414,13 @@ static int vlan_dev_stop(struct net_device *dev)
 {
 	struct vlan_dev_priv *vlan = vlan_dev_priv(dev);
 	struct net_device *real_dev = vlan->real_dev;
+
+	//CHENMING W0988 2018-12-7 fake vlan id 0 to vlan untag
+	if (vlan->vlan_id == 0)
+	{
+		vlan_real_dev = NULL;
+		vlan_fake_dev = NULL;
+	}
 
 	dev_mc_unsync(real_dev, dev);
 	dev_uc_unsync(real_dev, dev);
@@ -566,6 +657,14 @@ static const struct net_device_ops vlan_netdev_ops;
 static int vlan_dev_init(struct net_device *dev)
 {
 	struct net_device *real_dev = vlan_dev_priv(dev)->real_dev;
+
+#ifdef INCLUDE_802_1P_VOIP
+	if (!init_pcp)
+	{
+		init_pcp = 1;
+		proc_create("voip_8021p_pcp",  0, NULL, &voip_8021p_pcp_entry);
+	}
+#endif
 
 	netif_carrier_off(dev);
 

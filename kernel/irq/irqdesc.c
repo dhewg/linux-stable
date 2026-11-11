@@ -287,7 +287,7 @@ int __init early_irq_init(void)
 	return arch_early_irq_init();
 }
 
-struct irq_desc *irq_to_desc(unsigned int irq)
+__IMEM struct irq_desc *irq_to_desc(unsigned int irq)
 {
 	return (irq < NR_IRQS) ? irq_desc + irq : NULL;
 }
@@ -342,7 +342,7 @@ void irq_init_desc(unsigned int irq)
  * @irq:	The irq number to handle
  *
  */
-int generic_handle_irq(unsigned int irq)
+__IMEM int generic_handle_irq(unsigned int irq)
 {
 	struct irq_desc *desc = irq_to_desc(irq);
 

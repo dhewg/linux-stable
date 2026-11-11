@@ -1013,7 +1013,6 @@ emul:
 						goto emul;
 
 					return SIGILL;
-					goto emul;
 
 				case cop1_op:
 					goto emul;

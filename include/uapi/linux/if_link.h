@@ -35,6 +35,17 @@ struct rtnl_link_stats {
 	/* for cslip etc */
 	__u32	rx_compressed;
 	__u32	tx_compressed;
+
+#ifdef CONFIG_TP_IMAGE
+    __u32   tx_multicast_packets;  /* multicast packets transmitted */
+    __u32   rx_multicast_bytes;  /* multicast bytes recieved */
+    __u32   tx_multicast_bytes;  /* multicast bytes transmitted */
+    __u32   rx_unicast_packets;  /* unicast packets recieved */
+    __u32   tx_unicast_packets;  /* unicast packets transmitted */
+    __u32   rx_broadcast_packets;  /* broadcast packets recieved */
+    __u32   tx_broadcast_packets;  /* broadcast packets transmitted */
+    __u32   rx_unknown_packets;  /* unknown protocol packets recieved */
+#endif /* CONFIG_TP_IMAGE */
 };
 
 /* The main device statistics structure */
@@ -68,6 +79,17 @@ struct rtnl_link_stats64 {
 	/* for cslip etc */
 	__u64	rx_compressed;
 	__u64	tx_compressed;
+
+#ifdef CONFIG_TP_IMAGE
+	__u64   tx_multicast_packets;  /* multicast packets transmitted */
+	__u64   rx_multicast_bytes;  /* multicast bytes recieved */
+	__u64   tx_multicast_bytes;  /* multicast bytes transmitted */
+	__u64   rx_unicast_packets;  /* unicast packets recieved */
+	__u64   tx_unicast_packets;  /* unicast packets transmitted */
+	__u64   rx_broadcast_packets;  /* broadcast packets recieved */
+	__u64   tx_broadcast_packets;  /* broadcast packets transmitted */
+	__u64   rx_unknown_packets;  /* unknown protocol packets recieved */
+#endif /* CONFIG_TP_IMAGE */
 };
 
 /* The struct should be in sync with struct ifmap */

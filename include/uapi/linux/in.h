@@ -20,6 +20,7 @@
 
 #include <linux/types.h>
 #include <linux/socket.h>
+#include <linux/ecnt_in.h>
 
 /* Standard well-defined IP protocols.  */
 enum {
@@ -109,6 +110,9 @@ struct in_addr {
 
 #define IP_MINTTL       21
 #define IP_NODEFRAG     22
+/*
+! important !: Add new MACRO to ecnt_in.h
+*/
 
 /* IP_MTU_DISCOVER values */
 #define IP_PMTUDISC_DONT		0	/* Never send DF frames */
@@ -144,6 +148,9 @@ struct in_addr {
 #define MCAST_MSFILTER			48
 #define IP_MULTICAST_ALL		49
 #define IP_UNICAST_IF			50
+/*
+! important !: Add new MACRO to ecnt_in.h
+*/
 
 #define MCAST_EXCLUDE	0
 #define MCAST_INCLUDE	1

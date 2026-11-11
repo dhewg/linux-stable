@@ -16,6 +16,7 @@ obj-y += net-sysfs.o
 obj-$(CONFIG_PROC_FS) += net-procfs.o
 obj-$(CONFIG_NET_PKTGEN) += pktgen.o
 obj-$(CONFIG_NETPOLL) += netpoll.o
+obj-$(CONFIG_QOS) += qos_type.o
 obj-$(CONFIG_FIB_RULES) += fib_rules.o
 obj-$(CONFIG_TRACEPOINTS) += net-traces.o
 obj-$(CONFIG_NET_DROP_MONITOR) += drop_monitor.o
@@ -23,3 +24,8 @@ obj-$(CONFIG_NETWORK_PHY_TIMESTAMPING) += timestamping.o
 obj-$(CONFIG_NET_PTP_CLASSIFY) += ptp_classifier.o
 obj-$(CONFIG_CGROUP_NET_PRIO) += netprio_cgroup.o
 obj-$(CONFIG_CGROUP_NET_CLASSID) += netclassid_cgroup.o
+obj-y += ecnt_net_utility.o
+obj-y += ecnt_skb_alloc.o
+ifneq ($(strip $(TCSUPPORT_CT_VOIP_QOS)),)
+obj-$(TCSUPPORT_VOIP)	+= ecnt_voip_proc.o
+endif

@@ -70,8 +70,17 @@ int ipv6_rcv(struct sk_buff *skb, struct net_device *dev, struct packet_type *pt
 	struct net *net = dev_net(skb->dev);
 
 	if (skb->pkt_type == PACKET_OTHERHOST) {
+#ifdef CONFIG_TP_IPV6_PASSTHROUGH
+		if (!(skb->dev && (skb->dev->priv_flags & IFF_IP6_BR)))
+		{
+			kfree_skb(skb);
+			return NET_RX_DROP;
+		}
+#else 
 		kfree_skb(skb);
 		return NET_RX_DROP;
+#endif 
+
 	}
 
 	rcu_read_lock();
@@ -81,10 +90,20 @@ int ipv6_rcv(struct sk_buff *skb, struct net_device *dev, struct packet_type *pt
 	IP6_UPD_PO_STATS_BH(net, idev, IPSTATS_MIB_IN, skb->len);
 
 	if ((skb = skb_share_check(skb, GFP_ATOMIC)) == NULL ||
-	    !idev || unlikely(idev->cnf.disable_ipv6)) {
+		!idev || unlikely(idev->cnf.disable_ipv6)) {
+#ifdef CONFIG_TP_IPV6_PASSTHROUGH
+		if (!(idev->cnf.disable_ipv6 && (skb->dev->priv_flags & IFF_IP6_BR) && skb->pkt_type == PACKET_OTHERHOST))
+		{
+			IP6_INC_STATS_BH(net, idev, IPSTATS_MIB_INDISCARDS);
+			goto drop;
+		}
+#else
 		IP6_INC_STATS_BH(net, idev, IPSTATS_MIB_INDISCARDS);
 		goto drop;
+#endif
+
 	}
+
 
 	memset(IP6CB(skb), 0, sizeof(struct inet6_skb_parm));
 
@@ -276,6 +295,10 @@ discard:
 
 int ip6_input(struct sk_buff *skb)
 {
+#if defined(TCSUPPORT_RA_HWNAT) && !defined(TCSUPPORT_MT7510_FE)
+	if (ra_sw_nat_hook_free)
+		ra_sw_nat_hook_free(skb);
+#endif
 	return NF_HOOK(NFPROTO_IPV6, NF_INET_LOCAL_IN, skb, skb->dev, NULL,
 		       ip6_input_finish);
 }

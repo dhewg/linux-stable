@@ -80,6 +80,10 @@
 #include <linux/netlink.h>
 #include <linux/tcp.h>
 
+#include <ecnt_hook/ecnt_hook_net.h>
+#include <ecnt_hook/ecnt_hook_crypto.h>
+
+
 int sysctl_ip_default_ttl __read_mostly = IPDEFTTL;
 EXPORT_SYMBOL(sysctl_ip_default_ttl);
 
@@ -104,6 +108,15 @@ int __ip_local_out(struct sk_buff *skb)
 int ip_local_out_sk(struct sock *sk, struct sk_buff *skb)
 {
 	int err;
+	struct net_data_s net_data;
+	int ret = -1;
+
+	net_data.pskb = &skb;
+	ret =  ECNT_IP_OUTPUT_HOOK(ECNT_NET_IP_LOCAL_OUT,&net_data);
+	if ( ECNT_RETURN == ret )
+	{
+		return ret;
+	}
 
 	err = __ip_local_out(skb);
 	if (likely(err == 1))
@@ -163,7 +176,7 @@ int ip_build_and_send_pkt(struct sk_buff *skb, struct sock *sk,
 }
 EXPORT_SYMBOL_GPL(ip_build_and_send_pkt);
 
-static inline int ip_finish_output2(struct sk_buff *skb)
+__IMEM static inline int ip_finish_output2(struct sk_buff *skb)
 {
 	struct dst_entry *dst = skb_dst(skb);
 	struct rtable *rt = (struct rtable *)dst;
@@ -253,7 +266,7 @@ static int ip_finish_output_gso(struct sk_buff *skb)
 	return ret;
 }
 
-static int ip_finish_output(struct sk_buff *skb)
+__IMEM static int ip_finish_output(struct sk_buff *skb)
 {
 #if defined(CONFIG_NETFILTER) && defined(CONFIG_XFRM)
 	/* Policy lookup after SNAT yielded a new policy */
@@ -262,6 +275,21 @@ static int ip_finish_output(struct sk_buff *skb)
 		return dst_output(skb);
 	}
 #endif
+	
+/* kernel 2.6.36
+#ifdef TCSUPPORT_IPSEC_PASSTHROUGH
+	if(1 == skb->ipsec_pt_flag)
+	{
+		struct adapterlistpara_s ptr;
+		ptr.para = 0;
+		ptr.skb = skb;
+		ipsec_set_adatpterlist_para(&ptr);
+		skb->ipsec_pt_flag = 0;
+	}
+#endif
+*/
+	CRYPTO_API_ESP_ADATPDER_SET(ECNT_CRYPTO, skb);
+
 	if (skb_is_gso(skb))
 		return ip_finish_output_gso(skb);
 
@@ -331,7 +359,7 @@ int ip_mc_output(struct sock *sk, struct sk_buff *skb)
 			    !(IPCB(skb)->flags & IPSKB_REROUTED));
 }
 
-int ip_output(struct sock *sk, struct sk_buff *skb)
+__IMEM int ip_output(struct sock *sk, struct sk_buff *skb)
 {
 	struct net_device *dev = skb_dst(skb)->dev;
 
@@ -458,6 +486,20 @@ static void ip_copy_metadata(struct sk_buff *to, struct sk_buff *from)
 	skb_dst_copy(to, from);
 	to->dev = from->dev;
 	to->mark = from->mark;
+
+/*
+ * brief	already copied in nf_copy->__nf_copy->ecnt_nf_copy
+ * By	wangwenhao, 2Nov22
+ */
+#if 0
+/* add for LAN/WAN binding 20190926 --HSW */
+/* Added By Shangguan Weijie, 2017-07-28. */
+/* for LAN/WAN binding */
+#if defined(CONFIG_TP_IMAGE) && defined(INCLUDE_TP_MARK)
+	to->mark2 = from->mark2;
+#endif /* defined(CONFIG_TP_IMAGE) && defined(INCLUDE_TP_MARK) */
+/* End Add. */
+#endif
 
 	/* Copy the flags to each fragment. */
 	IPCB(to)->flags = IPCB(from)->flags;

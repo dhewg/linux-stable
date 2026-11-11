@@ -294,8 +294,13 @@ alloc_new:
 	if ((buffer_boundary(map_bh) && relative_block == nblocks) ||
 	    (first_hole != blocks_per_page))
 		bio = mpage_bio_submit(READ, bio);
-	else
-		*last_block_in_bio = blocks[blocks_per_page - 1];
+	else{
+		if(blocks_per_page < 1 || blocks_per_page > MAX_BUF_PER_PAGE){
+			printk("%s: blocks_per_page = %d, blocks[] will out of bound!!!\n", __FUNCTION__, blocks_per_page);
+		}else{
+			*last_block_in_bio = blocks[blocks_per_page - 1];
+		}
+	}
 out:
 	return bio;
 

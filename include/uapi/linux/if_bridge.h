@@ -23,6 +23,11 @@
 #define SYSFS_BRIDGE_PORT_ATTR	"brport"
 #define SYSFS_BRIDGE_PORT_LINK	"bridge"
 
+/*TCSUPPORT_SNOOPING_SEPERATION*/
+#define BRCTL_IGMPSNOOPING_OFFSET 1
+#define BRCTL_MLDSNOOPING_OFFSET 2
+/*TCSUPPORT_SNOOPING_SEPERATION*/
+
 #define BRCTL_VERSION 1
 
 #define BRCTL_GET_VERSION 0
@@ -44,12 +49,27 @@
 #define BRCTL_SET_PORT_PRIORITY 16
 #define BRCTL_SET_PATH_COST 17
 #define BRCTL_GET_FDB_ENTRIES 18
-
+#ifdef CONFIG_TP_IMAGE
+#define BRCTL_GET_FDB_DST 19
+#endif /*CONFIG_TP_IMAGE*/
 #define BR_STATE_DISABLED 0
 #define BR_STATE_LISTENING 1
 #define BR_STATE_LEARNING 2
 #define BR_STATE_FORWARDING 3
 #define BR_STATE_BLOCKING 4
+
+#if defined(CONFIG_BRIDGE_IGMP_SNOOPING) && defined(TCSUPPORT_IGMP_SNOOPING)
+/*IGMP Snooping*/
+#define BRCTL_SET_IGMPSNOOPING_STATE 19
+#define BRCTL_SET_IGMPSNOOPING_AGEING_TIME 20
+#define BRCTL_GET_MC_FDB_ENTRIES 21
+#define BRCTL_SET_IGMPSNOOPING_QUICKLEAVE 22
+#define BRCTL_SET_IGMPSNOOPING_DBG 23
+#endif
+
+#if defined(TCSUPPORT_XPON_IGMP)
+#define BRCTL_XPON_IGMP_CMD 1000
+#endif
 
 struct __bridge_info {
 	__u64 designated_root;
@@ -71,6 +91,13 @@ struct __bridge_info {
 	__u32 tcn_timer_value;
 	__u32 topology_change_timer_value;
 	__u32 gc_timer_value;
+#if defined(CONFIG_BRIDGE_IGMP_SNOOPING) && defined(TCSUPPORT_IGMP_SNOOPING)
+	__u8 igmpsnoop_enabled;
+	__u8 mldsnoop_enabled;
+	__u8 igmpsnoop_quickleave;
+	__u8 igmpsnoop_dbg;
+	__u32 igmpsnoop_ageing_time;
+#endif
 };
 
 struct __port_info {
@@ -87,7 +114,26 @@ struct __port_info {
 	__u32 message_age_timer_value;
 	__u32 forward_delay_timer_value;
 	__u32 hold_timer_value;
+#if defined(CONFIG_BRIDGE_IGMP_SNOOPING) && defined(TCSUPPORT_IGMP_SNOOPING)
+	__u8 is_router;
+#endif
+
 };
+
+#if defined(CONFIG_BRIDGE_IGMP_SNOOPING) && defined(TCSUPPORT_IGMP_SNOOPING)
+struct __mc_fdb_entry
+{
+	__u8 group_addr[40];
+	__u8 host_addr[6];
+	__u8 group_mac[6];
+	__u16 port_no;
+	__u32 ageing_timer_value;
+	__u8 src_addr[40];
+	__u8 filter_mode;
+	__u8 version;
+	__u32 unused;
+};
+#endif
 
 struct __fdb_entry {
 	__u8 mac_addr[ETH_ALEN];

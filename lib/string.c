@@ -636,6 +636,7 @@ void *memcpy(void *dest, const void *src, size_t count)
 EXPORT_SYMBOL(memcpy);
 #endif
 
+
 #ifndef __HAVE_ARCH_MEMMOVE
 /**
  * memmove - Copy one area of memory to another

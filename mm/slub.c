@@ -2456,7 +2456,7 @@ static __always_inline void *slab_alloc(struct kmem_cache *s,
 	return slab_alloc_node(s, gfpflags, NUMA_NO_NODE, addr);
 }
 
-void *kmem_cache_alloc(struct kmem_cache *s, gfp_t gfpflags)
+__IMEM void *kmem_cache_alloc(struct kmem_cache *s, gfp_t gfpflags)
 {
 	void *ret = slab_alloc(s, gfpflags, _RET_IP_);
 
@@ -2675,7 +2675,7 @@ redo:
 
 }
 
-void kmem_cache_free(struct kmem_cache *s, void *x)
+__IMEM void kmem_cache_free(struct kmem_cache *s, void *x)
 {
 	s = cache_from_obj(s, x);
 	if (!s)
@@ -3360,6 +3360,7 @@ int __kmem_cache_shrink(struct kmem_cache *s)
 	int objects = oo_objects(s->max);
 	struct list_head *slabs_by_inuse =
 		kmalloc(sizeof(struct list_head) * objects, GFP_KERNEL);
+	struct list_head *tmp = slabs_by_inuse;
 	unsigned long flags;
 
 	if (!slabs_by_inuse)
@@ -3401,7 +3402,7 @@ int __kmem_cache_shrink(struct kmem_cache *s)
 			discard_slab(s, page);
 	}
 
-	kfree(slabs_by_inuse);
+	kfree(tmp);
 	return 0;
 }
 
@@ -3708,7 +3709,7 @@ static struct notifier_block slab_notifier = {
 
 #endif
 
-void *__kmalloc_track_caller(size_t size, gfp_t gfpflags, unsigned long caller)
+__IMEM void *__kmalloc_track_caller(size_t size, gfp_t gfpflags, unsigned long caller)
 {
 	struct kmem_cache *s;
 	void *ret;

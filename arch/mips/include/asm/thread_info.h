@@ -69,7 +69,11 @@ static inline struct thread_info *current_thread_info(void)
 
 /* thread information allocation */
 #if defined(CONFIG_PAGE_SIZE_4KB) && defined(CONFIG_32BIT)
+#if defined(CONFIG_CPU_TC3162) || defined(CONFIG_MIPS_TC3262)
+#define THREAD_SIZE_ORDER (2)
+#else
 #define THREAD_SIZE_ORDER (1)
+#endif
 #endif
 #if defined(CONFIG_PAGE_SIZE_4KB) && defined(CONFIG_64BIT)
 #define THREAD_SIZE_ORDER (2)

@@ -31,6 +31,14 @@
 
 #include "xhci.h"
 #include "xhci-trace.h"
+#if defined (CONFIG_USB_EN7512_XHCI_HCD)
+#include <asm/uaccess.h>
+#include <linux/platform_device.h>
+#include "mtk-phy.h"
+#include "xhci-mtk-scheduler.h"
+#include "xhci-mtk-power.h"
+#include "xhci-mtk.h"
+#endif
 
 #define DRIVER_AUTHOR "Sarah Sharp"
 #define DRIVER_DESC "'eXtensible' Host Controller (xHC) Driver"
@@ -198,7 +206,7 @@ int xhci_reset(struct xhci_hcd *xhci)
 	return ret;
 }
 
-#ifdef CONFIG_PCI
+#if defined (CONFIG_PCI) && !defined (CONFIG_USB_EN7512_XHCI_HCD)
 static int xhci_free_msi(struct xhci_hcd *xhci)
 {
 	int i;
@@ -447,6 +455,10 @@ static void compliance_mode_recovery(unsigned long arg)
 			xhci_dbg_trace(xhci, trace_xhci_dbg_quirks,
 					"Attempting compliance mode recovery");
 			hcd = xhci->shared_hcd;
+			if(xhci_mtk_host(xhci)){		
+				temp |= (1 << 31);
+				writel(temp, xhci->usb3_ports[i]);
+			}
 
 			if (hcd->state == HC_STATE_SUSPENDED)
 				usb_hcd_resume_root_hub(hcd);
@@ -542,11 +554,13 @@ int xhci_init(struct usb_hcd *hcd)
 		xhci_dbg_trace(xhci, trace_xhci_dbg_init,
 				"xHCI doesn't need link TRB QUIRK");
 	}
+	if(xhci_mtk_host(xhci))
+		mtk_xhci_scheduler_init();
 	retval = xhci_mem_init(xhci, GFP_KERNEL);
 	xhci_dbg_trace(xhci, trace_xhci_dbg_init, "Finished xhci_init");
 
 	/* Initializing Compliance Mode Recovery Data If Needed */
-	if (xhci_compliance_mode_recovery_timer_quirk_check()) {
+	if ((xhci_mtk_host(xhci)) || xhci_compliance_mode_recovery_timer_quirk_check()) {
 		xhci->quirks |= XHCI_COMP_MODE_QUIRK;
 		compliance_mode_recovery_timer_init(xhci);
 	}
@@ -626,7 +640,11 @@ int xhci_run(struct usb_hcd *hcd)
 			"// Set the interrupt modulation register");
 	temp = readl(&xhci->ir_set->irq_control);
 	temp &= ~ER_IRQ_INTERVAL_MASK;
-	temp |= (u32) 160;
+	/*
+	  * the increment interval is 10 times as much as that defained
+	  * in xHCI spec on MTK's controller
+	  */
+	temp |= (u32) (xhci_mtk_host(xhci) ? 16 : 160);
 	writel(temp, &xhci->ir_set->irq_control);
 
 	/* Set the HCD state before we enable the irqs */
@@ -651,6 +669,8 @@ int xhci_run(struct usb_hcd *hcd)
 		xhci_queue_vendor_command(xhci, command, 0, 0, 0,
 				TRB_TYPE(TRB_NEC_GET_FW));
 	}
+	if(xhci_mtk_host(xhci))
+		enableXhciAllPortPower(xhci);
 	xhci_dbg_trace(xhci, trace_xhci_dbg_init,
 			"Finished xhci_run for USB2 roothub");
 	return 0;
@@ -1533,6 +1553,9 @@ int xhci_urb_dequeue(struct usb_hcd *hcd, struct urb *urb, int status)
 
 	xhci = hcd_to_xhci(hcd);
 	spin_lock_irqsave(&xhci->lock, flags);
+#if defined (CONFIG_USB_EN7512_XHCI_HCD)
+        en7512_en7516_full_speed_process(hcd, urb);
+#endif
 	/* Make sure the URB hasn't completed or been unlinked already */
 	ret = usb_hcd_check_unlink_urb(hcd, urb, status);
 	if (ret || !urb->hcpriv)
@@ -1618,6 +1641,116 @@ done:
 	return ret;
 }
 
+int xhci_drop_endpoint_scheduler(struct xhci_hcd *xhci, 
+	struct usb_device *udev, 
+	struct usb_host_endpoint *ep)
+{
+#if MTK_SCH_NEW
+	struct xhci_slot_ctx *slot_ctx;
+	struct sch_ep *sch_ep = NULL;
+	int isTT;
+	int ep_type;
+
+	slot_ctx = xhci_get_slot_ctx(xhci, xhci->devs[udev->slot_id]->out_ctx);
+	if ((slot_ctx->tt_info & 0xff) > 0) {
+		isTT = 1;
+	}
+	else {
+		isTT = 0;
+	}
+	if (usb_endpoint_xfer_int(&ep->desc)) {
+		ep_type = USB_EP_INT;
+	}
+	else if (usb_endpoint_xfer_isoc(&ep->desc)) {
+		ep_type = USB_EP_ISOC;
+	}
+	else if (usb_endpoint_xfer_bulk(&ep->desc)) {
+		ep_type = USB_EP_BULK;
+	}
+	else
+		ep_type = USB_EP_CONTROL;
+
+	sch_ep = mtk_xhci_scheduler_remove_ep(udev->speed, usb_endpoint_dir_in(&ep->desc)
+		, isTT, ep_type, (mtk_u32 *)ep);
+	if (sch_ep != NULL) {
+		kfree(sch_ep);
+	}
+	else {
+		xhci_dbg(xhci, "[MTK]Doesn't find ep_sch instance when removing endpoint\n");
+	}
+#else
+	mtk_xhci_scheduler_remove_ep(xhci, udev, ep);
+#endif
+}
+
+int xhci_add_endpoint_scheduler(struct xhci_hcd *xhci, 
+	struct xhci_virt_device *virt_dev, 
+	struct usb_device *udev, 
+	struct usb_host_endpoint *ep, 
+	struct xhci_container_ctx *in_ctx,
+	unsigned int ep_index)
+{
+	struct xhci_ep_ctx *in_ep_ctx;
+#if MTK_SCH_NEW
+	struct xhci_slot_ctx *slot_ctx;
+	struct sch_ep *sch_ep;
+	int isTT;
+	int ep_type;
+	int maxp = 0;
+	int burst = 0;
+	int mult = 0;
+	int interval;
+#endif
+
+	in_ep_ctx = xhci_get_ep_ctx(xhci, in_ctx, ep_index);
+#if MTK_SCH_NEW
+	slot_ctx = xhci_get_slot_ctx(xhci, virt_dev->out_ctx);
+	if ((slot_ctx->tt_info & 0xff) > 0) {
+		isTT = 1;
+	}
+	else {
+		isTT = 0;
+	}
+	if (usb_endpoint_xfer_int(&ep->desc)) {
+		ep_type = USB_EP_INT;
+	}
+	else if (usb_endpoint_xfer_isoc(&ep->desc)) {
+		ep_type = USB_EP_ISOC;
+	}
+	else if (usb_endpoint_xfer_bulk(&ep->desc)) {
+		ep_type = USB_EP_BULK;
+	}
+	else
+		ep_type = USB_EP_CONTROL;
+
+	if (udev->speed == USB_SPEED_FULL || udev->speed == USB_SPEED_HIGH 
+		|| udev->speed == USB_SPEED_LOW) {
+		maxp = usb_endpoint_maxp(&ep->desc) & 0x7FF;
+		burst = usb_endpoint_maxp(&ep->desc) >> 11;
+		mult = 0;
+	}
+	else if (udev->speed == USB_SPEED_SUPER) {
+		maxp = usb_endpoint_maxp(&ep->desc) & 0x7FF;
+		burst = ep->ss_ep_comp.bMaxBurst;
+		mult = ep->ss_ep_comp.bmAttributes & 0x3;
+	}
+	interval = (1 << ((in_ep_ctx->ep_info >> 16) & 0xff));
+	sch_ep = kmalloc(sizeof(struct sch_ep), GFP_KERNEL);
+	if (mtk_xhci_scheduler_add_ep(udev->speed, usb_endpoint_dir_in(&ep->desc),
+		isTT, ep_type, maxp, interval, burst, mult, (mtk_u32 *)ep
+		, (mtk_u32 *)in_ep_ctx, sch_ep) != SCH_SUCCESS) {
+		xhci_err(xhci, "[MTK] not enough bandwidth\n");
+
+		return -ENOSPC;
+	}
+#else
+	if (mtk_xhci_scheduler_add_ep(xhci, udev, ep, in_ep_ctx) != SCH_SUCCESS) {
+		xhci_err(xhci, "[MTK] not enough bandwidth\n");
+		return -ENOSPC;
+	}
+#endif
+}
+
 /* Drop an endpoint from a new bandwidth configuration for this device.
  * Only one call to this function is allowed per endpoint before
  * check_bandwidth() or reset_bandwidth() must be called.
@@ -1688,7 +1821,8 @@ int xhci_drop_endpoint(struct usb_hcd *hcd, struct usb_device *udev,
 	new_add_flags = le32_to_cpu(ctrl_ctx->add_flags);
 
 	xhci_endpoint_zero(xhci, xhci->devs[udev->slot_id], ep);
-
+	if(xhci_mtk_host(xhci))
+		xhci_drop_endpoint_scheduler(xhci, udev, ep);
 	xhci_dbg(xhci, "drop ep 0x%x, slot id %d, new drop flags = %#x, new add flags = %#x\n",
 			(unsigned int) ep->desc.bEndpointAddress,
 			udev->slot_id,
@@ -1786,7 +1920,8 @@ int xhci_add_endpoint(struct usb_hcd *hcd, struct usb_device *udev,
 				__func__, ep->desc.bEndpointAddress);
 		return -ENOMEM;
 	}
-
+	if(xhci_mtk_host(xhci))
+		xhci_add_endpoint_scheduler(xhci, virt_dev, udev, ep, in_ctx, ep_index);
 	ctrl_ctx->add_flags |= cpu_to_le32(added_ctxs);
 	new_add_flags = le32_to_cpu(ctrl_ctx->add_flags);
 
@@ -4903,6 +5038,10 @@ int xhci_gen_setup(struct usb_hcd *hcd, xhci_get_quirks_t get_quirks)
 		goto error;
 	xhci_dbg(xhci, "Reset complete\n");
 
+	if(xhci_mtk_host(xhci)){
+		hcd->self.no_stop_on_short = 0;
+		setInitialReg();
+	}
 	/* Set dma_mask and coherent_dma_mask to 64-bits,
 	 * if xHC supports 64-bit addressing */
 	if (HCC_64BIT_ADDR(xhci->hcc_params) &&
@@ -4997,8 +5136,43 @@ MODULE_DESCRIPTION(DRIVER_DESC);
 MODULE_AUTHOR(DRIVER_AUTHOR);
 MODULE_LICENSE("GPL");
 
+#if defined (CONFIG_USB_EN7512_XHCI_HCD)
+static struct platform_device *xhci_platform_dev;
+static inline int xhci_mtk_hcd_init(void)
+{
+	int retval;
+	struct platform_device *pPlatformDev;
+	
+	/* 	
+	* 	Config PHY
+	* 	ecnt_u3h_phy_init();
+	*/
+	if(!ecnt_u3h_phy_init())
+		return 0;
+		
+	reinitIP();
+
+	xhci_platform_dev = platform_device_alloc("xhci-hcd", -1);
+	pPlatformDev = xhci_platform_dev;
+	pPlatformDev->dev.coherent_dma_mask = 0xffffffff;
+	pPlatformDev->dev.dma_mask = &pPlatformDev->dev.coherent_dma_mask;
+
+	retval = platform_device_add(pPlatformDev);
+	if (retval < 0)
+		platform_driver_unregister (&xhci_platform_dev);
+}
+static void __exit xhci_hcd_cleanup(void)
+{
+	platform_device_unregister(xhci_platform_dev);
+}
+module_exit(xhci_hcd_cleanup);
+#endif
+
 static int __init xhci_hcd_init(void)
 {
+#if defined (CONFIG_USB_EN7512_XHCI_HCD)
+	xhci_mtk_hcd_init();
+#endif
 	/*
 	 * Check the compiler generated sizes of structures that must be laid
 	 * out in specific ways for hardware access.

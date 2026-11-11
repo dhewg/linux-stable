@@ -2031,10 +2031,10 @@ static int do_loopback(struct path *path, const char *old_name,
 
 	if (!check_mnt(parent) || !check_mnt(old))
 		goto out2;
-
+#if !defined(TCSUPPORT_CT_JOYME2)
 	if (!recurse && has_locked_children(old, old_path.dentry))
 		goto out2;
-
+#endif
 	if (recurse)
 		mnt = copy_tree(old, old_path.dentry, CL_COPY_MNT_NS_FILE);
 	else

@@ -71,6 +71,7 @@
 
 #include <linux/netfilter.h>
 #include <linux/netfilter_ipv6.h>
+#include "ecnt_net_ipv6.h"
 
 /* Set to 3 to get tracing... */
 #define ND_DEBUG 1
@@ -138,6 +139,9 @@ struct neigh_table nd_tbl = {
 			[NEIGH_VAR_ANYCAST_DELAY] = 1 * HZ,
 			[NEIGH_VAR_PROXY_DELAY] = (8 * HZ) / 10,
 		},
+#ifdef TCSUPPORT_IPV6_ENHANCEMENT
+		.dlf_route =    "",
+#endif
 	},
 	.gc_interval =	  30 * HZ,
 	.gc_thresh1 =	 128,
@@ -453,7 +457,7 @@ static void ndisc_send_skb(struct sk_buff *skb,
 	rcu_read_lock();
 	idev = __in6_dev_get(dst->dev);
 	IP6_UPD_PO_STATS(net, idev, IPSTATS_MIB_OUT, skb->len);
-
+	ecnt_ndisc_send_skb_inline_hook(skb);
 	err = NF_HOOK(NFPROTO_IPV6, NF_INET_LOCAL_OUT, skb, NULL, dst->dev,
 		      dst_output);
 	if (!err) {
@@ -1104,7 +1108,8 @@ static void ndisc_router_discovery(struct sk_buff *skb)
 		return;
 	}
 
-	if (!ipv6_accept_ra(in6_dev)) {
+	if (ecnt_ndisc_router_discovery_if_inline_hook(in6_dev))
+	{
 		ND_PRINTK(2, info,
 			  "RA: %s, did not accept ra for dev: %s\n",
 			  __func__, skb->dev->name);
@@ -1139,6 +1144,10 @@ static void ndisc_router_discovery(struct sk_buff *skb)
 					IF_RA_MANAGED : 0) |
 				(ra_msg->icmph.icmp6_addrconf_other ?
 					IF_RA_OTHERCONF : 0);
+
+#ifdef TCSUPPORT_IPV6_ENHANCEMENT
+	in6_dev->cnf.if_flags = in6_dev->if_flags & 0xFF;
+#endif
 
 	if (!in6_dev->cnf.accept_ra_defrtr) {
 		ND_PRINTK(2, info,
@@ -1292,7 +1301,7 @@ skip_linkparms:
 			     NEIGH_UPDATE_F_ISROUTER);
 	}
 
-	if (!ipv6_accept_ra(in6_dev)) {
+	if (ecnt_ndisc_router_discovery_if_inline_hook(in6_dev)){
 		ND_PRINTK(2, info,
 			  "RA: %s, accept_ra is false for dev: %s\n",
 			  __func__, skb->dev->name);
@@ -1385,6 +1394,8 @@ skip_routeinfo:
 	if (ndopts.nd_opts_tgt_lladdr || ndopts.nd_opts_rh) {
 		ND_PRINTK(2, warn, "RA: invalid RA options\n");
 	}
+	
+	ecnt_ndisc_router_discovery_inline_hook(skb,in6_dev,ndopts,neigh);
 out:
 	ip6_rt_put(rt);
 	if (neigh)

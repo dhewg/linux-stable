@@ -90,6 +90,7 @@
 #include <linux/proc_fs.h>
 #include <linux/seq_file.h>
 #include <linux/export.h>
+#include "ecnt_net_ipv6.h"
 
 /* Set to 3 to get tracing... */
 #define ACONF_DEBUG 2
@@ -172,7 +173,11 @@ static struct ipv6_devconf ipv6_devconf __read_mostly = {
 	.mtu6			= IPV6_MIN_MTU,
 	.accept_ra		= 1,
 	.accept_redirects	= 1,
+#ifdef TCSUPPORT_IPV6_ENHANCEMENT
+	.autoconf		= 0,
+#else
 	.autoconf		= 1,
+#endif
 	.force_mld_version	= 0,
 	.mldv1_unsolicited_report_interval = 10 * HZ,
 	.mldv2_unsolicited_report_interval = HZ,
@@ -186,7 +191,11 @@ static struct ipv6_devconf ipv6_devconf __read_mostly = {
 	.regen_max_retry	= REGEN_MAX_RETRY,
 	.max_desync_factor	= MAX_DESYNC_FACTOR,
 	.max_addresses		= IPV6_MAX_ADDRESSES,
+#ifdef TCSUPPORT_IPV6_ENHANCEMENT
+	.accept_ra_defrtr	= 0,
+#else
 	.accept_ra_defrtr	= 1,
+#endif
 	.accept_ra_from_local	= 0,
 	.accept_ra_pinfo	= 1,
 #ifdef CONFIG_IPV6_ROUTER_PREF
@@ -201,6 +210,16 @@ static struct ipv6_devconf ipv6_devconf __read_mostly = {
 	.disable_ipv6		= 0,
 	.accept_dad		= 1,
 	.suppress_frag_ndisc	= 1,
+#ifdef TCSUPPORT_IPV6_ENHANCEMENT
+	.slaac_addr		="",
+	.if_flags		= 0,
+#endif
+#if defined(TCSUPPORT_CT_WAN_CHILD_PREFIX)
+	.child_prefix_orign = 0,
+	.child_prefix = "",  //used to calulate the new prefix in ra
+	.parent_pd_prefix = "",  //used to calulate the new prefix in ra
+	.slaac_prefix = "",  //get current ra prefix
+#endif
 };
 
 static struct ipv6_devconf ipv6_devconf_dflt __read_mostly = {
@@ -209,7 +228,11 @@ static struct ipv6_devconf ipv6_devconf_dflt __read_mostly = {
 	.mtu6			= IPV6_MIN_MTU,
 	.accept_ra		= 1,
 	.accept_redirects	= 1,
+#ifdef TCSUPPORT_IPV6_ENHANCEMENT
+	.autoconf		= 0,
+#else
 	.autoconf		= 1,
+#endif
 	.force_mld_version	= 0,
 	.mldv1_unsolicited_report_interval = 10 * HZ,
 	.mldv2_unsolicited_report_interval = HZ,
@@ -223,7 +246,11 @@ static struct ipv6_devconf ipv6_devconf_dflt __read_mostly = {
 	.regen_max_retry	= REGEN_MAX_RETRY,
 	.max_desync_factor	= MAX_DESYNC_FACTOR,
 	.max_addresses		= IPV6_MAX_ADDRESSES,
+#ifdef TCSUPPORT_IPV6_ENHANCEMENT
+	.accept_ra_defrtr	= 0,
+#else
 	.accept_ra_defrtr	= 1,
+#endif
 	.accept_ra_from_local	= 0,
 	.accept_ra_pinfo	= 1,
 #ifdef CONFIG_IPV6_ROUTER_PREF
@@ -238,6 +265,16 @@ static struct ipv6_devconf ipv6_devconf_dflt __read_mostly = {
 	.disable_ipv6		= 0,
 	.accept_dad		= 1,
 	.suppress_frag_ndisc	= 1,
+#ifdef TCSUPPORT_IPV6_ENHANCEMENT
+	.slaac_addr		="",
+	.if_flags		= 0,
+#endif
+#if defined(TCSUPPORT_CT_WAN_CHILD_PREFIX)
+	.child_prefix_orign = 0,
+	.child_prefix = "",  //used to calulate the new prefix in ra
+	.parent_pd_prefix = "",  //used to calulate the new prefix in ra
+	.slaac_prefix = "",  //get current ra prefix
+#endif
 };
 
 /* Check if a valid qdisc is available */
@@ -2179,6 +2216,12 @@ void addrconf_prefix_rcv(struct net_device *dev, u8 *opt, int len, bool sllao)
 		return;
 	}
 
+#ifdef TCSUPPORT_IPV6_ENHANCEMENT
+	/* for TTNET VC220 node X_TT_IPv6_AFlag */
+	in6_dev->cnf.if_flags &= 0xFF;
+	in6_dev->cnf.if_flags |= (((pinfo->onlink << 1)|(pinfo->autoconf))<<8);
+#endif
+
 	/*
 	 *	Two things going on here:
 	 *	1) Add routes for on-link prefixes
@@ -2351,6 +2394,8 @@ ok:
 			in6_ifa_put(ifp);
 			addrconf_verify();
 		}
+		
+	    ecnt_addrconf_prefix_rcv_inline_hook(in6_dev,pinfo,addr);
 	}
 	inet6_prefix_notify(RTM_NEWPREFIX, in6_dev, pinfo);
 	in6_dev_put(in6_dev);
@@ -2773,6 +2818,8 @@ static void addrconf_dev_config(struct net_device *dev)
 	if (IS_ERR(idev))
 		return;
 
+	if (ecnt_addrconf_dev_config_if_inline_hook(dev,idev) == 0)
+		return;
 	addrconf_addr_gen(idev, false);
 }
 
@@ -3127,7 +3174,7 @@ static void addrconf_rs_timer(unsigned long data)
 	if (idev->dead || !(idev->if_flags & IF_READY))
 		goto out;
 
-	if (!ipv6_accept_ra(idev))
+	if (ecnt_addrconf_rs_timer_if_inline_hook(idev))
 		goto out;
 
 	/* Announcement received after solicitation was sent */
@@ -3362,8 +3409,8 @@ static void addrconf_dad_completed(struct inet6_ifaddr *ifp)
 
 	read_lock_bh(&ifp->idev->lock);
 	send_mld = ifp->scope == IFA_LINK && ipv6_lonely_lladdr(ifp);
-	send_rs = send_mld &&
-		  ipv6_accept_ra(ifp->idev) &&
+	
+	send_rs = send_mld && (ecnt_addrconf_dad_complete_if_inline_hook(ifp)) &&
 		  ifp->idev->cnf.rtr_solicits > 0 &&
 		  (dev->flags&IFF_LOOPBACK) == 0;
 	read_unlock_bh(&ifp->idev->lock);
@@ -4967,6 +5014,46 @@ int addrconf_sysctl_proxy_ndp(struct ctl_table *ctl, int write,
 	return ret;
 }
 
+#ifdef CONFIG_TP_IMAGE
+/* porting from linux-3.10.14, by hqj 2019.02.12 */
+static
+int addrconf_sendrs(struct ctl_table *ctl, int write,
+			    void __user *buffer, size_t *lenp,
+			    loff_t *ppos)
+{
+	//int *valp = ctl->data;
+	//int val = *valp;
+	//loff_t pos = *ppos;
+	int ret;
+
+	struct net *net;
+	struct inet6_ifaddr *ifp;
+	struct inet6_dev * i6dev;
+	ret = proc_dointvec(ctl, write, buffer, lenp, ppos);
+
+	if (write)
+	{
+		net = (struct net *)ctl->extra2;
+		i6dev = (struct inet6_dev *)ctl->extra1;
+		//if (valp == &net->ipv6.devconf_dflt->sendrs)
+		//	return 0;
+		read_lock(&i6dev->lock);
+		list_for_each_entry(ifp, &i6dev->addr_list, if_list) 
+		{
+			if (1 == ifp->idev->cnf.forwarding && 2 == ifp->idev->cnf.accept_ra && 0 == ifp->idev->cnf.disable_ipv6)
+			{
+				if (ipv6_addr_type(&ifp->addr) & IPV6_ADDR_LINKLOCAL)
+				{
+					ndisc_send_rs(i6dev->dev,&ifp->addr, &in6addr_linklocal_allrouters);
+				}
+			}
+		}
+		read_unlock(&i6dev->lock);
+		return 0;
+	}
+	return ret;
+}
+#endif /* CONFIG_TP_IMAGE */
 
 static struct addrconf_sysctl_table
 {
@@ -5196,6 +5283,15 @@ static struct addrconf_sysctl_table
 			.mode		= 0644,
 			.proc_handler	= proc_dointvec,
 		},
+#ifdef CONFIG_TP_IMAGE
+		{
+			.procname       = "sendrs",
+			.data           = &ipv6_devconf.sendrs,
+			.maxlen         = sizeof(int),
+			.mode           = 0644,
+			.proc_handler   = addrconf_sendrs,
+		},
+#endif /* CONFIG_TP_IMAGE */
 		{
 			.procname       = "force_tllao",
 			.data           = &ipv6_devconf.force_tllao,
@@ -5224,6 +5320,52 @@ static struct addrconf_sysctl_table
 			.mode		= 0644,
 			.proc_handler	= proc_dointvec,
 		},
+#ifdef TCSUPPORT_IPV6_ENHANCEMENT
+		{
+			.procname	=	"slaac_addr",
+			.data		=	&ipv6_devconf.slaac_addr,
+			.maxlen		=	64,
+			.mode		=	0644,
+			.proc_handler	=	&proc_dostring,
+		},
+		{
+			.procname	=	"if_flags",
+			.data		=	&ipv6_devconf.if_flags,
+			.maxlen		=	sizeof(int),
+			.mode		=	0644,
+			.proc_handler	= proc_dointvec
+		},
+#endif
+#if defined(TCSUPPORT_CT_WAN_CHILD_PREFIX)
+		{
+			.procname	= "child_prefix_orign",
+			.data		= &ipv6_devconf.child_prefix_orign,
+			.maxlen 	= sizeof(int),
+			.mode		= 0666,
+			.proc_handler	= proc_dointvec,
+		},
+		{
+			.procname	=	"child_prefix",
+			.data		=	&ipv6_devconf.child_prefix,
+			.maxlen 	=	64,
+			.mode		=	0666,
+			.proc_handler	=	&proc_dostring,
+		},
+		{
+			.procname	=	"parent_pd_prefix",
+			.data		=	&ipv6_devconf.parent_pd_prefix,
+			.maxlen 	=	64,
+			.mode		=	0666,
+			.proc_handler	=	&proc_dostring,
+		},
+		{
+			.procname	=	"slaac_prefix",
+			.data		=	&ipv6_devconf.slaac_prefix,
+			.maxlen 	=	64,
+			.mode		=	0666,
+			.proc_handler	=	&proc_dostring,
+		},
+#endif
 		{
 			/* sentinel */
 		}

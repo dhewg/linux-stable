@@ -452,7 +452,7 @@ static enum alarmtimer_type clock2alarm(clockid_t clockid)
 		return ALARM_REALTIME;
 	if (clockid == CLOCK_BOOTTIME_ALARM)
 		return ALARM_BOOTTIME;
-	return -1;
+	return ALARM_REALTIME;
 }
 
 /**

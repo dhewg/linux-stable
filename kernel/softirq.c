@@ -223,7 +223,7 @@ static inline bool lockdep_softirq_start(void) { return false; }
 static inline void lockdep_softirq_end(bool in_hardirq) { }
 #endif
 
-asmlinkage __visible void __do_softirq(void)
+__IMEM asmlinkage __visible void __do_softirq(void)
 {
 	unsigned long end = jiffies + MAX_SOFTIRQ_TIME;
 	unsigned long old_flags = current->flags;
@@ -290,14 +290,17 @@ restart:
 		wakeup_softirqd();
 	}
 
-	lockdep_softirq_end(in_hardirq);
+	lockdep_softirq_end(in_hardirq);	
+    #ifndef TCSUPPORT_NEW_WDOG
+	tc3162wdog_kick();
+	#endif
 	account_irq_exit_time(current);
 	__local_bh_enable(SOFTIRQ_OFFSET);
 	WARN_ON_ONCE(in_interrupt());
 	tsk_restore_flags(current, old_flags, PF_MEMALLOC);
 }
 
-asmlinkage __visible void do_softirq(void)
+__IMEM asmlinkage __visible void do_softirq(void)
 {
 	__u32 pending;
 	unsigned long flags;
@@ -318,7 +321,7 @@ asmlinkage __visible void do_softirq(void)
 /*
  * Enter an interrupt context.
  */
-void irq_enter(void)
+__IMEM void irq_enter(void)
 {
 	rcu_irq_enter();
 	if (is_idle_task(current) && !in_interrupt()) {
@@ -373,7 +376,7 @@ static inline void tick_irq_exit(void)
 /*
  * Exit an interrupt context. Process softirqs if needed and possible:
  */
-void irq_exit(void)
+__IMEM void irq_exit(void)
 {
 #ifndef __ARCH_IRQ_EXIT_IRQS_DISABLED
 	local_irq_disable();
@@ -411,7 +414,7 @@ inline void raise_softirq_irqoff(unsigned int nr)
 		wakeup_softirqd();
 }
 
-void raise_softirq(unsigned int nr)
+__IMEM void raise_softirq(unsigned int nr)
 {
 	unsigned long flags;
 

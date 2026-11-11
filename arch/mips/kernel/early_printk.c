@@ -18,6 +18,9 @@ extern void prom_putchar(char);
 
 static void early_console_write(struct console *con, const char *s, unsigned n)
 {
+#ifdef CONFIG_TP_DISABLE_UART
+	return;
+#endif
 	while (n-- && *s) {
 		if (*s == '\n')
 			prom_putchar('\r');

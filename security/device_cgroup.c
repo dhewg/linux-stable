@@ -835,7 +835,7 @@ static int __devcgroup_check_permission(short type, u32 major, u32 minor,
 
 int __devcgroup_inode_permission(struct inode *inode, int mask)
 {
-	short type, access = 0;
+	short type = 0, access = 0;
 
 	if (S_ISBLK(inode->i_mode))
 		type = DEV_BLOCK;

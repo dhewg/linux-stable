@@ -530,6 +530,20 @@ static void ip6_copy_metadata(struct sk_buff *to, struct sk_buff *from)
 	to->dev = from->dev;
 	to->mark = from->mark;
 
+/*
+ * brief	already copied in nf_copy->__nf_copy->ecnt_nf_copy
+ * By	wangwenhao, 2Nov22
+ */
+#if 0
+/* add for LAN/WAN binding 20190926 --HSW */
+/* Added By Shangguan Weijie, 2017-07-28. */
+/* for LAN/WAN binding */
+#if defined(CONFIG_TP_IMAGE) && defined(INCLUDE_TP_MARK)
+	to->mark2 = from->mark2;
+#endif /* defined(CONFIG_TP_IMAGE) && defined(INCLUDE_TP_MARK) */
+/* End Add. */
+#endif
+
 #ifdef CONFIG_NET_SCHED
 	to->tc_index = from->tc_index;
 #endif
@@ -833,6 +847,8 @@ fail:
 	kfree_skb(skb);
 	return err;
 }
+
+EXPORT_SYMBOL(ip6_fragment);
 
 static inline int ip6_rt_check(const struct rt6key *rt_key,
 			       const struct in6_addr *fl_addr,

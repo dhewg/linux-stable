@@ -102,6 +102,10 @@ config NETWORK_PHY_TIMESTAMPING
 	  overhead in the transmit and receive paths.
 
 	  If you are unsure how to answer this question, answer N.
+config SMUX
+	bool "smux"
+	help
+	  This enables multi-service on one interface/PVC.
 
 menuconfig NETFILTER
 	bool "Network packet filtering framework (Netfilter)"

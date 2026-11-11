@@ -57,6 +57,7 @@ void (*_dma_cache_wback_inv)(unsigned long start, unsigned long size);
 void (*_dma_cache_wback)(unsigned long start, unsigned long size);
 void (*_dma_cache_inv)(unsigned long start, unsigned long size);
 
+EXPORT_SYMBOL(_dma_cache_inv);
 EXPORT_SYMBOL(_dma_cache_wback_inv);
 
 #endif /* CONFIG_DMA_NONCOHERENT || CONFIG_DMA_MAYBE_COHERENT */
@@ -83,8 +84,7 @@ void __flush_dcache_page(struct page *page)
 	struct address_space *mapping = page_mapping(page);
 	unsigned long addr;
 
-	if (PageHighMem(page))
-		return;
+
 	if (mapping && !mapping_mapped(mapping)) {
 		SetPageDcacheDirty(page);
 		return;
@@ -95,8 +95,15 @@ void __flush_dcache_page(struct page *page)
 	 * case is for exec env/arg pages and those are %99 certainly going to
 	 * get faulted into the tlb (and thus flushed) anyways.
 	 */
-	addr = (unsigned long) page_address(page);
+    if (PageHighMem(page))
+        addr = (unsigned long)kmap_atomic(page);
+    else
+	    addr = (unsigned long) page_address(page);
+    
 	flush_data_cache_page(addr);
+
+    if (PageHighMem(page))
+        __kunmap_atomic((void *)addr);
 }
 
 EXPORT_SYMBOL(__flush_dcache_page);
@@ -129,11 +136,21 @@ static void mips_flush_dcache_from_pte(pte_t pteval, unsigned long address)
 
 	page = pfn_to_page(pfn);
 	if (page_mapping(page) && Page_dcache_dirty(page)) {
-		unsigned long page_addr = (unsigned long) page_address(page);
+        
+        unsigned long page_addr;
+    
+        if (PageHighMem(page))
+            page_addr = (unsigned long)kmap_atomic(page);
+        else
+            page_addr = (unsigned long)page_address(page);   
 
 		if (!cpu_has_ic_fills_f_dc ||
 		    pages_do_alias(page_addr, address & PAGE_MASK))
 			flush_data_cache_page(page_addr);
+		
+        if (PageHighMem(page))
+            __kunmap_atomic((void *)page_addr);
+
 		ClearPageDcacheDirty(page);
 	}
 }

@@ -49,6 +49,7 @@
 #include <net/ip6_tunnel.h>
 #include <net/ip6_checksum.h>
 #endif
+#include <ecnt_hook/ecnt_hook_net.h>
 
 #define VXLAN_VERSION	"0.1"
 
@@ -1136,6 +1137,15 @@ static int vxlan_udp_encap_recv(struct sock *sk, struct sk_buff *skb)
 {
 	struct vxlan_sock *vs;
 	struct vxlanhdr *vxh;
+    int ret;
+    struct net_data_s net_data;
+
+    net_data.pskb = &skb;
+    ret =  ECNT_VXLAN_GENERIC_HOOK(ECNT_NET_VXLAN_RECV, &net_data);
+    if (ECNT_RETURN_DROP == ret)
+    {
+    	goto drop;
+    }
 
 	/* Need Vxlan and inner Ethernet header to be present */
 	if (!pskb_may_pull(skb, VXLAN_HLEN))
@@ -1181,6 +1191,8 @@ static void vxlan_rcv(struct vxlan_sock *vs,
 	__u32 vni;
 	int err = 0;
 	union vxlan_addr *remote_ip;
+    int ret;
+    struct net_data_s net_data;
 
 	vni = ntohl(vx_vni) >> 8;
 	/* Is this VNI defined? */
@@ -1243,6 +1255,13 @@ static void vxlan_rcv(struct vxlan_sock *vs,
 	stats->rx_packets++;
 	stats->rx_bytes += skb->len;
 	u64_stats_update_end(&stats->syncp);
+
+	net_data.pskb = &skb;
+	ret = ECNT_VXLAN_GENERIC_HOOK(ECNT_NET_VXLAN_TUNNEL_RECV, &net_data);
+	if (ECNT_RETURN == ret)
+	{
+        return;
+	}
 
 	netif_rx(skb);
 
@@ -1749,7 +1768,8 @@ static void vxlan_xmit_one(struct sk_buff *skb, struct net_device *dev,
 		fl4.flowi4_tos = RT_TOS(tos);
 		fl4.daddr = dst->sin.sin_addr.s_addr;
 		fl4.saddr = vxlan->saddr.sin.sin_addr.s_addr;
-
+        fl4.flowi4_proto = IPPROTO_UDP;
+            
 		rt = ip_route_output_key(vxlan->net, &fl4);
 		if (IS_ERR(rt)) {
 			netdev_dbg(dev, "no route to %pI4\n",
@@ -1873,9 +1893,22 @@ static netdev_tx_t vxlan_xmit(struct sk_buff *skb, struct net_device *dev)
 	bool did_rsc = false;
 	struct vxlan_rdst *rdst, *fdst = NULL;
 	struct vxlan_fdb *f;
+	struct net_data_s net_data;
+	int ret;
 
 	skb_reset_mac_header(skb);
 	eth = eth_hdr(skb);
+
+    if (!is_multicast_ether_addr(eth->h_dest))
+    {
+    	net_data.pskb = &skb;
+    	ret =  ECNT_VXLAN_GENERIC_HOOK(ECNT_NET_VXLAN_XMIT, &net_data);
+    	if (ECNT_RETURN_DROP == ret)
+    	{
+            kfree_skb(skb);
+            return NETDEV_TX_OK;
+    	}
+    }
 
 	if ((vxlan->flags & VXLAN_F_PROXY)) {
 		if (ntohs(eth->h_proto) == ETH_P_ARP)
@@ -2438,6 +2471,7 @@ static int vxlan_newlink(struct net *net, struct net_device *dev,
 	__u32 vni;
 	int err;
 	bool use_ipv6 = false;
+    struct net_data_s net_data;
 
 	if (!data[IFLA_VXLAN_ID])
 		return -EINVAL;
@@ -2584,6 +2618,10 @@ static int vxlan_newlink(struct net *net, struct net_device *dev,
 
 	list_add(&vxlan->next, &vn->vxlan_list);
 
+    net_data.device = dev;
+    net_data.vni = vni;
+    ECNT_VXLAN_GENERIC_HOOK(ECNT_NET_VXLAN_NEWLINK, &net_data);
+
 	return 0;
 }
 
@@ -2591,6 +2629,10 @@ static void vxlan_dellink(struct net_device *dev, struct list_head *head)
 {
 	struct vxlan_dev *vxlan = netdev_priv(dev);
 	struct vxlan_net *vn = net_generic(vxlan->net, vxlan_net_id);
+    struct net_data_s net_data;
+
+    net_data.device = dev;
+    ECNT_VXLAN_GENERIC_HOOK(ECNT_NET_VXLAN_DELLINK, &net_data);
 
 	spin_lock(&vn->sock_lock);
 	if (!hlist_unhashed(&vxlan->hlist))

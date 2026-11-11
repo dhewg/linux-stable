@@ -589,13 +589,19 @@ struct usb_device {
 
 	struct list_head filelist;
 
+#ifdef TCSUPPORT_MUH_TEST
+#define USB_MAXCHILDREN     (31)
+	struct usb_device *children[USB_MAXCHILDREN];
+#endif
 	int maxchild;
 
 	u32 quirks;
 	atomic_t urbnum;
 
 	unsigned long active_duration;
-
+#ifdef TCSUPPORT_USB_HOST_LED
+	u8 phyportnum;
+#endif
 #ifdef CONFIG_PM
 	unsigned long connect_time;
 
@@ -1882,6 +1888,9 @@ extern void usb_unregister_notify(struct notifier_block *nb);
 
 /* debugfs stuff */
 extern struct dentry *usb_debug_root;
+
+#define err(format, arg...)					\
+	printk(KERN_ERR KBUILD_MODNAME ": " format "\n", ##arg)
 
 /* LED triggers */
 enum usb_led_event {

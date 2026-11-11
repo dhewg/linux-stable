@@ -994,6 +994,10 @@ bool ipv6_chk_mcast_addr(struct net_device *dev, const struct in6_addr *group,
 	return rv;
 }
 
+#if defined(TCSUPPORT_XPON_IGMP)
+EXPORT_SYMBOL(ipv6_chk_mcast_addr);
+#endif
+
 static void mld_gq_start_timer(struct inet6_dev *idev)
 {
 	unsigned long tv = prandom_u32() % idev->mc_maxdelay;

@@ -52,6 +52,7 @@
 #include <net/netfilter/nf_nat.h>
 #include <net/netfilter/nf_nat_core.h>
 #include <net/netfilter/nf_nat_helper.h>
+#include "ecnt_netfilter.h"
 
 #define NF_CONNTRACK_VERSION	"0.5.0"
 
@@ -59,6 +60,169 @@ int (*nfnetlink_parse_nat_setup_hook)(struct nf_conn *ct,
 				      enum nf_nat_manip_type manip,
 				      const struct nlattr *attr) __read_mostly;
 EXPORT_SYMBOL_GPL(nfnetlink_parse_nat_setup_hook);
+
+/*hanjiayan added 2012-6-26 for DUT reserve local connection*/
+/*----------------hanjiayan edit  start---------------*/
+
+#define CONFIG_NF_CT_LOCAL_LIMIT 1
+#if	CONFIG_NF_CT_LOCAL_LIMIT
+/* 
+ * brief	For lan reserve connection debug
+ */
+#if 0
+#define	HJY_DBG	 printk
+#else
+#define	HJY_DBG(arg...)	do {} while(0)
+#endif
+
+/* 
+ * brief	max reserved connection
+ */
+#define	MAX_RESERVE_CONNTRACT		100
+
+/* 
+ * brief	LAN reserved connection
+ */
+#define	LOCAL_RESERVE_CONNTRACT		100
+
+/* 
+ * brief	Proc file temp  length 
+ */
+#define    PROC_TMP_LEN		128
+
+/* 
+ * brief	Net interface structure
+ */
+ struct netInterface{
+	const char ifName[20];
+	unsigned int ifAddr;
+};
+
+/* 
+ * brief	Net interfaces 
+ */
+static  struct netInterface ifLocalArray[] = 
+{
+	{{"br0"}, 0xFFFFFFFF},
+	{{"br1"}, 0xFFFFFFFF},
+	{{"br2"}, 0xFFFFFFFF},
+	{{"br3"}, 0xFFFFFFFF},
+	{{"br4"}, 0xFFFFFFFF},
+	/*TODO: You can add new interface here.*/
+};
+
+/*Get current net Interface numbers*/
+static int getNetInterfaceNum(void)
+{
+	return (unsigned int)(sizeof( ifLocalArray)/sizeof(struct netInterface));
+}
+/*hjy, 2012.6.26, the write net interface of conntract limit. */
+static ssize_t localConntractWriteAddr(struct file *filp,	
+									const char __user *buff,
+									unsigned long len,	
+									void *data )
+{
+	char temp[PROC_TMP_LEN] = {0, };
+	char ifName[20]  = {0, };
+	int ifNum = getNetInterfaceNum();
+	unsigned int ifAddr;
+	int index = 0;
+	int ret = 0;
+
+	ret = copy_from_user( temp, buff, len );
+	if (0 != ret) 
+	{
+		return -EFAULT;
+	}	
+		
+	sscanf(temp, "%s %u,", ifName, &ifAddr);
+
+	for(index = 0; index < ifNum; ++index)
+	{
+		if(0 == strcmp(ifName,  ifLocalArray[index].ifName))
+		{
+			 ifLocalArray[index].ifAddr = ifAddr;
+			 
+			 HJY_DBG(KERN_ERR "\033[0;40;35m Kernel: hjy, write Local Addr: "
+				" set %s ip %u.%u.%u.%u.\033[0m\n", ifName, NIPQUAD(ifAddr));	
+			 break;
+		}
+	}
+
+#ifdef HJY_DBG
+	if(index == ifNum)
+	{
+		HJY_DBG(KERN_ERR "\033[0;40;35m Kernel: hjy, write error! not find the "
+				"interface %s ip %u.%u.%u.%u.\033[0m\n", ifName, NIPQUAD(ifAddr));	
+	}
+#endif /*HJY_DBG*/
+
+	return (len);
+}
+/*hjy, 2012.6.26, the read net interface of conntract limit. */
+static int localConntractReadAddr(char* page, char** start, off_t off,
+									int count,	int *eof, void *data )
+{
+	int len = 0;
+	
+	if (off > 0) 
+	{
+		*eof = 1;
+		return 0;
+	}
+
+	/*TODO : If you add a new interface, please modify here 
+	for proc file reading.*/
+	len = sprintf(page, "%s: %u.%u.%u.%u\n"
+		"%s: %u.%u.%u.%u\n"
+		"%s: %u.%u.%u.%u\n"
+		"%s: %u.%u.%u.%u\n"
+		"%s: %u.%u.%u.%u\n",
+		ifLocalArray[0].ifName, NIPQUAD(ifLocalArray[0].ifAddr), 
+		ifLocalArray[1].ifName, NIPQUAD(ifLocalArray[1].ifAddr),
+		ifLocalArray[2].ifName, NIPQUAD(ifLocalArray[2].ifAddr),
+		ifLocalArray[3].ifName, NIPQUAD(ifLocalArray[3].ifAddr),
+		ifLocalArray[4].ifName, NIPQUAD(ifLocalArray[4].ifAddr));
+
+	return (len);
+}
+
+/*hjy, 2012.6.26, the init net interface of conntract limit. */
+int initLocalContractAddr(void)
+{
+	struct proc_dir_entry* procEntryAddr	= NULL;
+	
+	procEntryAddr = create_proc_entry("conntract_LocalAddr", 0644, init_net.proc_net);
+	if (NULL == procEntryAddr)
+	{
+		printk(KERN_ERR "\033[0;40;35mKernel: hjy, could not create a proc entry "
+							"conntract_LocalAddr.\033[0m\n");
+		return (-1);	
+	}	
+	
+	procEntryAddr->write_proc	= localConntractWriteAddr;
+	procEntryAddr->read_proc	= localConntractReadAddr;
+
+	/*Reserve local connection at initial.*/
+	nf_conntrack_max -= MAX_RESERVE_CONNTRACT;
+		
+	HJY_DBG(KERN_ERR "\033[0;40;35mKernel: hjy, proc entry loaded. reserve "
+		"local connection %d, nf_conntrack_max %d \033[0m\n", 
+		LOCAL_RESERVE_CONNTRACT, nf_conntrack_max);
+	
+	return (0);
+}
+
+/*hjy, 2012.6.26, the release net interface of conntract limit. */
+void releaseLocalContractAddr( void )
+{
+	remove_proc_entry("conntract_LocalAddr", init_net.proc_net);
+	nf_conntrack_max += MAX_RESERVE_CONNTRACT;
+	
+	HJY_DBG(KERN_ERR "\033[0;40;35mKernel: hjy, proc entry unloaded.\033[0m\n");
+}
+#endif /*CONFIG_NF_CT_LOCAL_LIMIT*/
+/*----------------hanjiayan edit  end---------------*/
 
 __cacheline_aligned_in_smp spinlock_t nf_conntrack_locks[CONNTRACK_LOCKS];
 EXPORT_SYMBOL_GPL(nf_conntrack_locks);
@@ -312,6 +476,13 @@ destroy_conntrack(struct nf_conntrack *nfct)
 	 * too.
 	 */
 	nf_ct_remove_expectations(ct);
+	
+#if defined(CONFIG_NETFILTER_XT_MATCH_LAYER7) || defined(CONFIG_NETFILTER_XT_MATCH_LAYER7_MODULE)
+		if(ct->layer7.app_proto)
+			kfree(ct->layer7.app_proto);
+		if(ct->layer7.app_data)
+			kfree(ct->layer7.app_data);
+#endif
 
 	nf_ct_del_from_dying_or_unconfirmed_list(ct);
 
@@ -794,6 +965,10 @@ __nf_conntrack_alloc(struct net *net, u16 zone,
 		     gfp_t gfp, u32 hash)
 {
 	struct nf_conn *ct;
+#if	CONFIG_NF_CT_LOCAL_LIMIT
+	int ifNum = getNetInterfaceNum();
+	int ifIndex;
+#endif /*CONFIG_NF_CT_LOCAL_LIMIT*/	
 
 	if (unlikely(!nf_conntrack_hash_rnd)) {
 		init_nf_conntrack_hash_rnd();
@@ -806,12 +981,46 @@ __nf_conntrack_alloc(struct net *net, u16 zone,
 
 	if (nf_conntrack_max &&
 	    unlikely(atomic_read(&net->ct.count) > nf_conntrack_max)) {
+
+/* ---------hanjiayan added for local reserving connection,2012.6.26 start---------*/
+#if	CONFIG_NF_CT_LOCAL_LIMIT
+		for(ifIndex = 0; ifIndex < ifNum; ++ifIndex)
+		{
+			HJY_DBG(KERN_ERR "\033[0;40;32m Kernel: hjy, name %s IP %u.%u.%u.%u,"
+				"test IP:src %u.%u.%u.%u, dst %u.%u.%u.%u, nf_conntrack_count: %d.\033[0m\n",
+				ifLocalArray[ifIndex].ifName, NIPQUAD(ifLocalArray[ifIndex].ifAddr), 
+				NIPQUAD(orig->src.u3.ip), NIPQUAD(orig->dst.u3.ip), atomic_read(&net->ct.count));
+
+			/* For local interface reserve connection*/
+			if (((orig->dst.u3.ip == ifLocalArray[ifIndex].ifAddr) ||
+				(orig->src.u3.ip == ifLocalArray[ifIndex].ifAddr))&& 
+				(0xFFFFFFFF != ifLocalArray[ifIndex].ifAddr) && 
+			      	(unlikely(atomic_read(&net->ct.count) <= (nf_conntrack_max + LOCAL_RESERVE_CONNTRACT))))
+			{
+			
+				HJY_DBG(KERN_ERR "\033[0;40;35m Kernel: hjy, Local conntrack match %s, "
+					"Don't drop!\033[0m\n", ifLocalArray[ifIndex].ifName);
+				
+				goto LOCAL_OUT_LABLE;
+			}
+			/*TODO: You can add new net interface here for reserving connection*/
+			
+		}
+#endif /*CONFIG_NF_CT_LOCAL_LIMIT*/
+/* ---------hanjiayan added for local reserving connection,2012.6.26 end---------*/
+		
 		if (!early_drop(net, hash)) {
 			atomic_dec(&net->ct.count);
 			net_warn_ratelimited("nf_conntrack: table full, dropping packet\n");
 			return ERR_PTR(-ENOMEM);
 		}
 	}
+
+/* ---------hanjiayan added for local reserving connection,2012.6.26 start---------*/
+#if	CONFIG_NF_CT_LOCAL_LIMIT	
+LOCAL_OUT_LABLE:
+#endif/*CONFIG_NF_CT_LOCAL_LIMIT*/
+/* ---------hanjiayan added for local reserving connection,2012.6.26 end---------*/
 
 	/*
 	 * Do not use kmem_cache_zalloc(), as this cache uses
@@ -835,6 +1044,9 @@ __nf_conntrack_alloc(struct net *net, u16 zone,
 	ct->tuplehash[IP_CT_DIR_REPLY].tuple = *repl;
 	/* save hash for reusing when confirming */
 	*(unsigned long *)(&ct->tuplehash[IP_CT_DIR_REPLY].hnnode.pprev) = hash;
+
+	ecnt_nf_conntrack_alloc_inline_hook(net, zone, orig, repl, gfp, hash, ct);
+
 	/* Don't set timer yet: wait for confirmation */
 	setup_timer(&ct->timeout, death_by_timeout, (unsigned long)ct);
 	write_pnet(&ct->ct_net, net);
@@ -879,6 +1091,8 @@ void nf_conntrack_free(struct nf_conn *ct)
 	 * the golden rule for SLAB_DESTROY_BY_RCU
 	 */
 	NF_CT_ASSERT(atomic_read(&ct->ct_general.use) == 0);
+
+	ecnt_nf_conntrack_free_inline_hook(ct);
 
 	nf_ct_ext_destroy(ct);
 	nf_ct_ext_free(ct);
@@ -982,6 +1196,7 @@ init_conntrack(struct net *net, struct nf_conn *tmpl,
 
 	/* Now it is inserted into the unconfirmed list, bump refcount */
 	nf_conntrack_get(&ct->ct_general);
+	ecnt_init_conntrack_inline_hook(net, skb, ct);
 	nf_ct_add_to_unconfirmed_list(ct);
 
 	local_bh_enable();
@@ -1032,6 +1247,8 @@ resolve_normal_ct(struct net *net, struct nf_conn *tmpl,
 			return (void *)h;
 	}
 	ct = nf_ct_tuplehash_to_ctrack(h);
+	if(skb->dev != NULL && (!strncmp(skb->dev->name, "br",2)))
+		ecnt_nf_conntrack_ipv6_route_hook(ct, skb);	
 
 	/* It exists; we have (non-exclusive) reference. */
 	if (NF_CT_DIRECTION(h) == IP_CT_DIR_REPLY) {
@@ -1055,6 +1272,18 @@ resolve_normal_ct(struct net *net, struct nf_conn *tmpl,
 	}
 	skb->nfct = &ct->ct_general;
 	skb->nfctinfo = *ctinfo;
+	#ifdef TCSUPPORT_RA_HWNAT
+	{
+		struct nf_conn_help *help = nfct_help(ct);
+	
+		if (help && help->helper) {
+			if (strcmp(help->helper->name, "FULLCONE-NAT") != 0) {
+				ecnt_resolve_normal_ct_inline_hook(help, skb, h);
+			}
+		}
+	}
+#endif
+
 	return ct;
 }
 
@@ -1480,6 +1709,13 @@ void nf_conntrack_cleanup_net(struct net *net)
 
 	list_add(&net->exit_list, &single);
 	nf_conntrack_cleanup_net_list(&single);
+
+/*hanjiayan added 2012-6-26 for DUT reserve connection*/
+/*----------------hanjiayan edit  start---------------*/
+#if	CONFIG_NF_CT_LOCAL_LIMIT
+	releaseLocalContractAddr();
+#endif /*CONFIG_NF_CT_LOCAL_LIMIT*/
+/*----------------hanjiayan edit  end---------------*/	
 }
 
 void nf_conntrack_cleanup_net_list(struct list_head *net_exit_list)
@@ -1689,6 +1925,7 @@ int nf_conntrack_init_start(void)
 	if (ret < 0)
 		goto err_proto;
 
+	ecnt_nf_conntrack_init_start_inline_hook(cpu);
 	/* Set up fake conntrack: to never be deleted, not in any hashes */
 	for_each_possible_cpu(cpu) {
 		struct nf_conn *ct = &per_cpu(nf_conntrack_untracked, cpu);
@@ -1697,6 +1934,15 @@ int nf_conntrack_init_start(void)
 	}
 	/*  - and look it like as a confirmed connection */
 	nf_ct_untracked_status_or(IPS_CONFIRMED | IPS_UNTRACKED);
+
+/*hanjiayan added 2012-6-26 for DUT reserve connection*/
+/*----------------hanjiayan edit  start---------------*/
+#if	CONFIG_NF_CT_LOCAL_LIMIT
+	printk("ludewei add module\n");
+	initLocalContractAddr();
+#endif /*CONFIG_NF_CT_LOCAL_LIMIT*/
+/*----------------hanjiayan edit  end---------------*/
+	
 	return 0;
 
 err_proto:

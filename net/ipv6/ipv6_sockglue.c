@@ -54,6 +54,7 @@
 #include <net/compat.h>
 
 #include <asm/uaccess.h>
+#include "ecnt_net_ipv6.h"
 
 struct ip6_ra_chain *ip6_ra_chain;
 DEFINE_RWLOCK(ip6_ra_lock);
@@ -839,6 +840,8 @@ pref_skip_coa:
 		retv = 0;
 		break;
 	}
+	ecnt_do_ipv6_setsockopt_inline_hook(sk, level, net, val,
+						optname, optval, optlen, &retv);
 
 	release_sock(sk);
 
@@ -957,6 +960,13 @@ static int do_ipv6_getsockopt(struct sock *sk, int level, int optname,
 
 	if (get_user(len, optlen))
 		return -EFAULT;
+
+	if ( ECNT_RETURN == ecnt_do_ipv6_getsockopt_inline_hook(sk, level, &val,
+		optname, optval, optlen, flags) )
+	{
+		goto GETSOCKOPT_END;
+	}
+
 	switch (optname) {
 	case IPV6_ADDRFORM:
 		if (sk->sk_protocol != IPPROTO_UDP &&
@@ -1281,6 +1291,8 @@ static int do_ipv6_getsockopt(struct sock *sk, int level, int optname,
 	default:
 		return -ENOPROTOOPT;
 	}
+
+GETSOCKOPT_END:
 	len = min_t(unsigned int, sizeof(int), len);
 	if (put_user(len, optlen))
 		return -EFAULT;

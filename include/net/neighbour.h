@@ -56,6 +56,9 @@ enum {
 	NEIGH_VAR_QUEUE_LEN, /* same data as NEIGH_VAR_QUEUE_LEN_BYTES */
 	NEIGH_VAR_RETRANS_TIME_MS, /* same data as NEIGH_VAR_RETRANS_TIME */
 	NEIGH_VAR_BASE_REACHABLE_TIME_MS, /* same data as NEIGH_VAR_BASE_REACHABLE_TIME */
+#ifdef TCSUPPORT_IPV6_ENHANCEMENT
+	NEIGH_VAR_DEFAULT_ROUTE,
+#endif
 	/* Following are used by "default" only */
 	NEIGH_VAR_GC_INTERVAL,
 	NEIGH_VAR_GC_THRESH1,
@@ -82,6 +85,9 @@ struct neigh_parms {
 
 	int	reachable_time;
 	int	data[NEIGH_VAR_DATA_MAX];
+#ifdef TCSUPPORT_IPV6_ENHANCEMENT
+	char dlf_route[64];
+#endif
 	DECLARE_BITMAP(data_state, NEIGH_VAR_DATA_MAX);
 };
 

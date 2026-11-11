@@ -77,6 +77,7 @@ static int skcipher_null_crypt(struct blkcipher_desc *desc,
 	struct blkcipher_walk walk;
 	int err;
 
+	memset(&walk, 0, sizeof(walk));
 	blkcipher_walk_init(&walk, dst, src, nbytes);
 	err = blkcipher_walk_virt(desc, &walk);
 

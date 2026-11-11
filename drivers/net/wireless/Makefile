@@ -57,6 +57,19 @@ obj-$(CONFIG_MWIFIEX)	+= mwifiex/
 
 obj-$(CONFIG_BRCMFMAC)	+= brcm80211/
 obj-$(CONFIG_BRCMSMAC)	+= brcm80211/
+ifeq ($(TCSUPPORT_WLAN_MT7612_BUILD_IN),1)
+obj-y	+= ../../../../modules/private/wifi/$(MT7612_MODULES)/
+endif
 
+ifeq ($(TCSUPPORT_WLAN_MT7613_BUILD_IN),1)
+obj-y	+= ../../../../modules/private/wifi/$(MT7613_MODULES)/embedded/
+endif
+
+ifeq ($(TCSUPPORT_WLAN_MT7615_BUILD_IN),1)
+obj-y	+= MT76XX/
+endif
+ifeq ($(TCSUPPORT_WLAN_MT7915_BUILD_IN),1)
+obj-y	+= MT79XX/
+endif
 obj-$(CONFIG_CW1200)	+= cw1200/
 obj-$(CONFIG_RSI_91X)	+= rsi/

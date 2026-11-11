@@ -1010,10 +1010,10 @@ restart_loop:
 			commit_transaction->t_cpprev->t_cpnext =
 				commit_transaction;
 		}
+		trace_jbd_end_commit(journal, commit_transaction);
 	}
 	spin_unlock(&journal->j_list_lock);
-
-	trace_jbd_end_commit(journal, commit_transaction);
+	
 	jbd_debug(1, "JBD: commit %d complete, head %d\n",
 		  journal->j_commit_sequence, journal->j_tail_sequence);
 

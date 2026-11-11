@@ -97,6 +97,7 @@ static int crypto_cbc_encrypt(struct blkcipher_desc *desc,
 	struct crypto_cipher *child = ctx->child;
 	int err;
 
+	memset(&walk, 0, sizeof(walk));
 	blkcipher_walk_init(&walk, dst, src, nbytes);
 	err = blkcipher_walk_virt(desc, &walk);
 
@@ -176,6 +177,7 @@ static int crypto_cbc_decrypt(struct blkcipher_desc *desc,
 	struct crypto_cipher *child = ctx->child;
 	int err;
 
+	memset(&walk, 0, sizeof(walk));
 	blkcipher_walk_init(&walk, dst, src, nbytes);
 	err = blkcipher_walk_virt(desc, &walk);
 

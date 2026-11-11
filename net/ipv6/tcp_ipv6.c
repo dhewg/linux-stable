@@ -69,6 +69,7 @@
 
 #include <linux/crypto.h>
 #include <linux/scatterlist.h>
+#include "ecnt_net_ipv6.h"
 
 static void	tcp_v6_send_reset(struct sock *sk, struct sk_buff *skb);
 static void	tcp_v6_reqsk_send_ack(struct sock *sk, struct sk_buff *skb,
@@ -1385,7 +1386,7 @@ ipv6_pktoptions:
 	return 0;
 }
 
-static void tcp_v6_fill_cb(struct sk_buff *skb, const struct ipv6hdr *hdr,
+void tcp_v6_fill_cb(struct sk_buff *skb, const struct ipv6hdr *hdr,
 			   const struct tcphdr *th)
 {
 	/* This is tricky: we move IP6CB at its correct location into
@@ -1450,6 +1451,8 @@ static int tcp_v6_rcv(struct sk_buff *skb)
 
 	sk = __inet6_lookup_skb(&tcp_hashinfo, skb, th->source, th->dest,
 				inet6_iif(skb));
+	if ( ECNT_RETURN_DROP == ecnt_tcp_v6_rcv_inline_hook(sk, skb, net, hdr, th) )
+		goto discard_it;
 	if (!sk)
 		goto no_tcp_socket;
 

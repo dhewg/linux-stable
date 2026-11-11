@@ -61,6 +61,8 @@
 #include <asm/types.h>
 #include <asm/stacktrace.h>
 #include <asm/uasm.h>
+#include <asm/tc3162/ecnt_traps.h>
+#include "ecnt_arch_mips_kernel.h"
 
 extern void check_wait(void);
 extern asmlinkage void rollback_handle_int(void);
@@ -368,7 +370,7 @@ void show_registers(struct pt_regs *regs)
 	set_fs(old_fs);
 }
 
-static int regs_to_trapnr(struct pt_regs *regs)
+int regs_to_trapnr(struct pt_regs *regs)
 {
 	return (regs->cp0_cause >> 2) & 0x1f;
 }
@@ -380,6 +382,7 @@ void __noreturn die(const char *str, struct pt_regs *regs)
 	static int die_counter;
 	int sig = SIGSEGV;
 
+	ecnt_set_panic_log_flag_hook(1);
 	oops_enter();
 
 	if (notify_die(DIE_OOPS, str, regs, 0, regs_to_trapnr(regs),
@@ -395,6 +398,7 @@ void __noreturn die(const char *str, struct pt_regs *regs)
 	add_taint(TAINT_DIE, LOCKDEP_NOW_UNRELIABLE);
 	raw_spin_unlock_irq(&die_lock);
 
+	ecnt_panic_write_hook();
 	oops_exit();
 
 	if (in_interrupt())
@@ -1358,6 +1362,15 @@ asmlinkage void do_watch(struct pt_regs *regs)
 	 * Clear WP (bit 22) bit of cause register so we don't loop
 	 * forever.
 	 */
+	 if(watchFlag){
+	 dump_tlb_all();
+	 show_registers(regs);	 	 
+	 //show_regs(regs);
+	//compute_return_epc(regs);
+	panic("Caught WATCH exception - probably caused by stack overflow\n");
+		return;
+	}
+	else{
 	cause = read_c0_cause();
 	cause &= ~(1 << 22);
 	write_c0_cause(cause);
@@ -1376,6 +1389,7 @@ asmlinkage void do_watch(struct pt_regs *regs)
 		local_irq_enable();
 	}
 	exception_exit(prev_state);
+}
 }
 
 asmlinkage void do_mcheck(struct pt_regs *regs)
@@ -1706,10 +1720,12 @@ void __noreturn nmi_exception_handler(struct pt_regs *regs)
 
 	raw_notifier_call_chain(&nmi_chain, 0, regs);
 	bust_spinlocks(1);
+	nmi_info_store(regs);
 	snprintf(str, 100, "CPU%d NMI taken, CP0_EPC=%lx\n",
 		 smp_processor_id(), regs->cp0_epc);
 	regs->cp0_epc = read_c0_errorepc();
-	die(str, regs);
+	//die(str, regs);
+	die_nmi(str, regs,&die_lock);
 }
 
 #define VECTORSPACING 0x100	/* for EI/VI mode */
@@ -1864,6 +1880,7 @@ void *set_vi_handler(int n, vi_handler_t addr)
 {
 	return set_vi_srs_handler(n, addr, 0);
 }
+EXPORT_SYMBOL(set_vi_handler);
 
 extern void tlb_init(void);
 

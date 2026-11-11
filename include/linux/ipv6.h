@@ -51,6 +51,19 @@ struct ipv6_devconf {
 	__s32		force_tllao;
 	__s32           ndisc_notify;
 	__s32		suppress_frag_ndisc;
+#ifdef TCSUPPORT_IPV6_ENHANCEMENT
+	char		slaac_addr[64];
+	__u32		if_flags;
+#endif
+#if defined(TCSUPPORT_CT_WAN_CHILD_PREFIX)
+	__s32 child_prefix_orign;
+	char child_prefix[64];  //used to calulate the new prefix in ra
+	char parent_pd_prefix[64];  //used to calulate the new prefix in ra
+	char slaac_prefix[64];  //get current ra prefix
+#endif
+#ifdef CONFIG_TP_IMAGE
+	__s32			sendrs;
+#endif
 	void		*sysctl;
 };
 

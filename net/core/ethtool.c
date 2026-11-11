@@ -1953,3 +1953,6 @@ int dev_ethtool(struct net *net, struct ifreq *ifr)
 
 	return rc;
 }
+
+EXPORT_SYMBOL(dev_ethtool);
+

@@ -117,6 +117,7 @@
 #include <linux/uaccess.h>
 
 #include <linux/netfilter_arp.h>
+#include "ecnt_net_ipv4.h"
 
 /*
  *	Interface to generic neighbour cache.
@@ -684,6 +685,7 @@ EXPORT_SYMBOL(arp_create);
  */
 void arp_xmit(struct sk_buff *skb)
 {
+	ecnt_arp_xmit_inline_hook(skb);
 	/* Send it off, maybe filter it using firewalling first.  */
 	NF_HOOK(NFPROTO_ARP, NF_ARP_OUT, skb, NULL, skb->dev, dev_queue_xmit);
 }

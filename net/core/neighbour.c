@@ -40,7 +40,7 @@
 #include <linux/log2.h>
 #include <linux/inetdevice.h>
 #include <net/addrconf.h>
-
+#include "ecnt_net_core.h"
 #define DEBUG
 #define NEIGH_DEBUG 1
 #define neigh_dbg(level, fmt, ...)		\
@@ -1321,7 +1321,7 @@ EXPORT_SYMBOL(neigh_compat_output);
 
 /* Slow and careful. */
 
-int neigh_resolve_output(struct neighbour *neigh, struct sk_buff *skb)
+__IMEM int neigh_resolve_output(struct neighbour *neigh, struct sk_buff *skb)
 {
 	struct dst_entry *dst = skb_dst(skb);
 	int rc = 0;
@@ -1362,7 +1362,7 @@ EXPORT_SYMBOL(neigh_resolve_output);
 
 /* As fast as possible without hh cache */
 
-int neigh_connected_output(struct neighbour *neigh, struct sk_buff *skb)
+__IMEM int neigh_connected_output(struct neighbour *neigh, struct sk_buff *skb)
 {
 	struct net_device *dev = neigh->dev;
 	unsigned int seq;
@@ -3013,6 +3013,14 @@ static struct neigh_sysctl_table {
 		NEIGH_SYSCTL_UNRES_QLEN_REUSED_ENTRY(QUEUE_LEN, QUEUE_LEN_BYTES, "unres_qlen"),
 		NEIGH_SYSCTL_MS_JIFFIES_REUSED_ENTRY(RETRANS_TIME_MS, RETRANS_TIME, "retrans_time_ms"),
 		NEIGH_SYSCTL_MS_JIFFIES_REUSED_ENTRY(BASE_REACHABLE_TIME_MS, BASE_REACHABLE_TIME, "base_reachable_time_ms"),
+#ifdef TCSUPPORT_IPV6_ENHANCEMENT
+		[NEIGH_VAR_DEFAULT_ROUTE] = {
+			.procname	= "default_route",
+			.maxlen 	= 64,
+			.mode		= 0644,
+			.proc_handler	= proc_dostring,
+		},
+#endif
 		[NEIGH_VAR_GC_INTERVAL] = {
 			.procname	= "gc_interval",
 			.maxlen		= sizeof(int),
@@ -3069,6 +3077,8 @@ int neigh_sysctl_register(struct net_device *dev, struct neigh_parms *p,
 	if (dev) {
 		dev_name_source = dev->name;
 		/* Terminate the table early */
+
+		/*add proc before "NEIGH_VAR_GC_INTERVAL", such as "NEIGH_VAR_DEFAULT_ROUTE"*/
 		memset(&t->neigh_vars[NEIGH_VAR_GC_INTERVAL], 0,
 		       sizeof(t->neigh_vars[NEIGH_VAR_GC_INTERVAL]));
 	} else {
@@ -3079,6 +3089,8 @@ int neigh_sysctl_register(struct net_device *dev, struct neigh_parms *p,
 		t->neigh_vars[NEIGH_VAR_GC_THRESH2].data = &tbl->gc_thresh2;
 		t->neigh_vars[NEIGH_VAR_GC_THRESH3].data = &tbl->gc_thresh3;
 	}
+
+	ecnt_neighbour_sysctl_register_inline_hook(t->neigh_vars, p, dev);
 
 	if (handler) {
 		/* RetransTime */

@@ -36,6 +36,7 @@
 #endif /* STATIC */
 
 #include <linux/decompress/mm.h>
+#include <linux/decompress/unlzma_mm.h>
 
 #define	MIN(a, b) (((a) < (b)) ? (a) : (b))
 
@@ -62,7 +63,11 @@ static long long INIT read_int(unsigned char *ptr, int size)
 
 #include <linux/compiler.h>
 
-#define LZMA_IOBUF_SIZE	0x10000
+#if defined(TCSUPPORT_NP_RAM_SHRINK)
+#define LZMA_IOBUF_SIZE        0x80000
+#else
+#define LZMA_IOBUF_SIZE        0x10000
+#endif
 
 struct rc {
 	long (*fill)(void*, unsigned long);

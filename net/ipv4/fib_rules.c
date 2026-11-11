@@ -129,7 +129,8 @@ static bool fib4_rule_suppress(struct fib_rule *rule, struct fib_lookup_arg *arg
 
 suppress_route:
 	if (!(arg->flags & FIB_LOOKUP_NOREF))
-		fib_info_put(result->fi);
+		if (result->fi)
+			fib_info_put(result->fi);
 	return true;
 }
 

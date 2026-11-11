@@ -44,14 +44,8 @@
 
 #include <linux/errqueue.h>
 #include <asm/uaccess.h>
-
-#define IP_CMSG_PKTINFO		1
-#define IP_CMSG_TTL		2
-#define IP_CMSG_TOS		4
-#define IP_CMSG_RECVOPTS	8
-#define IP_CMSG_RETOPTS		16
-#define IP_CMSG_PASSSEC		32
-#define IP_CMSG_ORIGDSTADDR     64
+#include "ecnt_net_ipv4.h"
+#include <ecnt_hook/ecnt_hook_ppe.h>
 
 /*
  *	SOL_IP control messages.
@@ -183,6 +177,7 @@ void ip_cmsg_recv(struct msghdr *msg, struct sk_buff *skb)
 	if (flags & 1)
 		ip_cmsg_recv_dstaddr(msg, skb);
 
+	ecnt_ip_cmsg_recv_inline_hook(msg, skb, flags);
 }
 EXPORT_SYMBOL(ip_cmsg_recv);
 
@@ -764,6 +759,16 @@ static int do_ip_setsockopt(struct sock *sk, int level,
 				break;
 		}
 
+        {
+            PPE_MULTICAST_INFO_t info;
+            
+            memset(&info, 0, sizeof(PPE_MULTICAST_INFO_t));
+            info.proto = PPE_MULTICAST_PROTO_IPV4;
+            memmove(info.grp_addr,&(mreq.imr_multiaddr.s_addr),4);      
+
+            PPE_API_MULTICAST_SUBSCRIBE_GROUP(&info, (optname == IP_ADD_MEMBERSHIP) ? 1 : 0);
+        }
+
 		if (optname == IP_ADD_MEMBERSHIP)
 			err = ip_mc_join_group(sk, &mreq);
 		else
@@ -1036,6 +1041,8 @@ mc_msf_out:
 		err = -ENOPROTOOPT;
 		break;
 	}
+	ecnt_do_ip_setsockopt_inline_hook(sk, level, inet,
+						optname, optval, optlen, &err);
 	release_sock(sk);
 	return err;
 
@@ -1135,6 +1142,7 @@ static int do_ip_getsockopt(struct sock *sk, int level, int optname,
 	struct inet_sock *inet = inet_sk(sk);
 	int val;
 	int len;
+	int ret = 0;
 
 	if (level != SOL_IP)
 		return -EOPNOTSUPP;
@@ -1148,6 +1156,13 @@ static int do_ip_getsockopt(struct sock *sk, int level, int optname,
 		return -EINVAL;
 
 	lock_sock(sk);
+	ret = ecnt_do_ip_getsockopt_inline_hook(sk, level, inet,
+			optname, optval, optlen, flags);
+	if ( ECNT_CONTINUE != ret )
+	{
+		release_sock(sk);
+		return (ECNT_RETURN == ret ? 0 : -EINVAL);
+	}
 
 	switch (optname) {
 	case IP_OPTIONS:
@@ -1340,6 +1355,7 @@ static int do_ip_getsockopt(struct sock *sk, int level, int optname,
 		release_sock(sk);
 		return -ENOPROTOOPT;
 	}
+
 	release_sock(sk);
 
 	if (len < sizeof(int) && len > 0 && val >= 0 && val <= 255) {

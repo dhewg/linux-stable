@@ -1256,6 +1256,10 @@ int ubifs_lookup_level0(struct ubifs_info *c, const union ubifs_key *key,
 	}
 	if (unlikely(err < 0))
 		return err;
+	if(*n < 0){
+		printk("%s: *n < 0, return 0!!!\n", __FUNCTION__);
+		return 0;
+	}
 	if (keys_cmp(c, key, &znode->zbranch[*n].key)) {
 		dbg_tnc("found 0, lvl %d, n -1", znode->level);
 		*n = -1;
@@ -1361,6 +1365,10 @@ static int lookup_level0_dirty(struct ubifs_info *c, const union ubifs_key *key,
 	}
 	if (unlikely(err < 0))
 		return err;
+	if(*n < 0){
+		printk("%s: *n < 0, return 0!!!\n", __FUNCTION__);
+		return 0;
+	}
 	if (keys_cmp(c, key, &znode->zbranch[*n].key)) {
 		*n = -1;
 		dbg_tnc("found 0, lvl %d, n -1", znode->level);
