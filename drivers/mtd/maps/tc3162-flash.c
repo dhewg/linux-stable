@@ -2036,7 +2036,10 @@ static int __init tc3162_mtd_init(void)
 		ra_nand_init();
 	}	
 #endif
+
+#ifndef CONFIG_INITRAMFS_SOURCE
 	tc3162_put_rootfs();
+#endif
 
 	return 0;
 }
