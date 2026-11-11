@@ -1,0 +1,92 @@
+/***************************************************************
+Copyright Statement:
+
+This software/firmware and related documentation (“EcoNet Software? 
+are protected under relevant copyright laws. The information contained herein 
+is confidential and proprietary to EcoNet (HK) Limited (“EcoNet? and/or 
+its licensors. Without the prior written permission of EcoNet and/or its licensors, 
+any reproduction, modification, use or disclosure of EcoNet Software, and 
+information contained herein, in whole or in part, shall be strictly prohibited.
+
+EcoNet (HK) Limited  EcoNet. ALL RIGHTS RESERVED.
+
+BY OPENING OR USING THIS FILE, RECEIVER HEREBY UNEQUIVOCALLY 
+ACKNOWLEDGES AND AGREES THAT THE SOFTWARE/FIRMWARE AND ITS 
+DOCUMENTATIONS (“ECONET SOFTWARE? RECEIVED FROM ECONET 
+AND/OR ITS REPRESENTATIVES ARE PROVIDED TO RECEIVER ON AN “AS IS?
+BASIS ONLY. ECONET EXPRESSLY DISCLAIMS ANY AND ALL WARRANTIES, 
+WHETHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE IMPLIED 
+WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, 
+OR NON-INFRINGEMENT. NOR DOES ECONET PROVIDE ANY WARRANTY 
+WHATSOEVER WITH RESPECT TO THE SOFTWARE OF ANY THIRD PARTIES WHICH 
+MAY BE USED BY, INCORPORATED IN, OR SUPPLIED WITH THE ECONET SOFTWARE. 
+RECEIVER AGREES TO LOOK ONLY TO SUCH THIRD PARTIES FOR ANY AND ALL 
+WARRANTY CLAIMS RELATING THERETO. RECEIVER EXPRESSLY ACKNOWLEDGES 
+THAT IT IS RECEIVER’S SOLE RESPONSIBILITY TO OBTAIN FROM ANY THIRD 
+PARTY ALL PROPER LICENSES CONTAINED IN ECONET SOFTWARE.
+
+ECONET SHALL NOT BE RESPONSIBLE FOR ANY ECONET SOFTWARE RELEASES 
+MADE TO RECEIVER’S SPECIFICATION OR CONFORMING TO A PARTICULAR 
+STANDARD OR OPEN FORUM. RECEIVER'S SOLE AND EXCLUSIVE REMEDY AND 
+ECONET'S ENTIRE AND CUMULATIVE LIABILITY WITH RESPECT TO THE ECONET 
+SOFTWARE RELEASED HEREUNDER SHALL BE, AT ECONET'S SOLE OPTION, TO 
+REVISE OR REPLACE THE ECONET SOFTWARE AT ISSUE OR REFUND ANY SOFTWARE 
+LICENSE FEES OR SERVICE CHARGES PAID BY RECEIVER TO ECONET FOR SUCH 
+ECONET SOFTWARE.
+***************************************************************/
+#ifndef _XPON_GLOBAL_PUBLIC_XMCS_CONST_H_
+#define _XPON_GLOBAL_PUBLIC_XMCS_CONST_H_
+
+#include <linux/types.h>
+    
+#ifdef __KERNEL__
+    #include <linux/ioctl.h>
+#else
+    #include <sys/ioctl.h>
+#endif
+
+#define GPON_SN_LENS            (8)
+#define GPON_PASSWD_LENS        (10)
+#define GPON_REG_ID_LENS        (36)
+#define GPON_ENCRYPT_KEY_LENS   (24)
+#define GPON_MAX_GEM_ID         (4096)
+#define GPON_UNASSIGN_ALLOC_ID  (0xFF)
+#define GPON_MAX_ALLOC_ID       (4096)
+
+
+#define GPON_10G_MAX_GEM_ID	        (65536)
+#define GPON_10G_MAX_VALID_GEM_ID	(65534)
+#define GPON_10G_UNASSIGN_ALLOC_ID	(0x3FF)
+#define GPON_10G_MAX_ALLOC_ID		(16384)
+#define GPON_MSK_LENS		    	(16)
+
+
+/* add or delate this enum, must change file 
+apps\private\xpon\ponmgr\inc\core\cmgr\cmgr_enum.h at the same time!!!! */
+typedef enum {
+    XPON_DISABLE = 0,
+    XPON_ENABLE,
+    XPON_POWER_DOWN,
+    XPON_OTHER
+} XPON_Mode_t;
+
+typedef enum {
+    GPON_STATE_O1 = 1, 
+    GPON_STATE_O2, 
+    GPON_STATE_O3, 
+    GPON_STATE_O4, 
+    GPON_STATE_O5, 
+    GPON_STATE_O6, 
+    GPON_STATE_O7 
+} ENUM_GponState_t;
+
+typedef enum {
+    GPON_10G_STATE_O1 = 1, 
+    GPON_10G_STATE_O2_3, 
+    GPON_10G_STATE_O4 = 4, 
+    GPON_10G_STATE_O5, 
+    GPON_10G_STATE_O6, 
+    GPON_10G_STATE_O7 
+} ENUM_Gpon_10G_State_t;
+
+#endif /*_XPON_GLOBAL_PUBLIC_XMCS_CONST_H_ */
