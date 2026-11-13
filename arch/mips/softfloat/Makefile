@@ -33,7 +33,7 @@ DP_OBJS := $(patsubst %,%.o, $(DPBIT_FUNCS))
 FP_OBJS := $(patsubst %,%.o, $(FPBIT_FUNCS))
 GCC_OBJS := $(patsubst %,%.o, $(LIB2FUNCS_1)) $(patsubst %,%.o, $(LIB2FUNCS_2)) $(patsubst %,%.o, $(LIB2_DIVMOD_FUNCS))
 softfloat-objs := $(DP_OBJS) $(FP_OBJS) $(GCC_OBJS) 
-clean-files := dp-bits.c fp-bits.c
+clean-files := dp-bits.c fp-bits.c libgcc.c
 # end softfloat
 
 # soft-float 
@@ -43,15 +43,20 @@ $(addprefix $(obj)/,$(patsubst %,%.o, $(DPBIT_FUNCS))): $(obj)/dp-bits.c
 $(addprefix $(obj)/,$(patsubst %,%.o, $(FPBIT_FUNCS))): $(obj)/fp-bits.c
 	$(CC) $(c_flags) -c $(NOSTDINC_FLAGS) $(KBUILD_CPPFLAGS) $(KBUILD_CFLAGS) -DFINE_GRAINED_LIBRARIES -DL$(notdir $(patsubst %.o,%, $@)) $(obj)/fp-bits.c -o $@
 
-$(addprefix $(obj)/,$(patsubst %,%.o, $(LIB2FUNCS_1))): $(obj)/libgcc2.c
-	$(CC) $(c_flags) -c $(NOSTDINC_FLAGS) $(KBUILD_CPPFLAGS) $(KBUILD_CFLAGS) -DFINE_GRAINED_LIBRARIES -DL$(notdir $(patsubst %.o,%, $@)) $(obj)/libgcc2.c -o $@
+$(addprefix $(obj)/,$(patsubst %,%.o, $(LIB2FUNCS_1))): $(obj)/libgcc.c
+	$(CC) $(c_flags) -c $(NOSTDINC_FLAGS) $(KBUILD_CPPFLAGS) $(KBUILD_CFLAGS) -DFINE_GRAINED_LIBRARIES -DL$(notdir $(patsubst %.o,%, $@)) $(obj)/libgcc.c -o $@
 
-$(addprefix $(obj)/,$(patsubst %,%.o, $(LIB2FUNCS_2))): $(obj)/libgcc2.c
-	$(CC) $(c_flags) -c $(NOSTDINC_FLAGS) $(KBUILD_CPPFLAGS) $(KBUILD_CFLAGS) -DFINE_GRAINED_LIBRARIES -DL$(notdir $(patsubst %.o,%, $@)) $(obj)/libgcc2.c -o $@
-$(addprefix $(obj)/,$(patsubst %,%.o, $(LIB2_DIVMOD_FUNCS))): $(obj)/libgcc2.c
-	$(CC) $(c_flags) -c $(NOSTDINC_FLAGS) $(KBUILD_CPPFLAGS) $(KBUILD_CFLAGS) -DFINE_GRAINED_LIBRARIES -DL$(notdir $(patsubst %.o,%, $@)) $(obj)/libgcc2.c -o $@	
+$(addprefix $(obj)/,$(patsubst %,%.o, $(LIB2FUNCS_2))): $(obj)/libgcc.c
+	$(CC) $(c_flags) -c $(NOSTDINC_FLAGS) $(KBUILD_CPPFLAGS) $(KBUILD_CFLAGS) -DFINE_GRAINED_LIBRARIES -DL$(notdir $(patsubst %.o,%, $@)) $(obj)/libgcc.c -o $@
+
+$(addprefix $(obj)/,$(patsubst %,%.o, $(LIB2_DIVMOD_FUNCS))): $(obj)/libgcc.c
+	$(CC) $(c_flags) -c $(NOSTDINC_FLAGS) $(KBUILD_CPPFLAGS) $(KBUILD_CFLAGS) -DFINE_GRAINED_LIBRARIES -DL$(notdir $(patsubst %.o,%, $@)) $(obj)/libgcc.c -o $@
+
 $(obj)/dp-bits.c: $(src)/fp-bit.c
-	cp $(src)/fp-bit.c $(obj)/dp-bits.c
+	cp $< $@
+
+$(obj)/libgcc.c: $(src)/libgcc2.c
+	cp $< $@
 
 $(obj)/fp-bits.c: $(src)/fp-bit.c
 	-echo '#define FLOAT' > $@
